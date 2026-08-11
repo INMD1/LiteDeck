@@ -89,6 +89,10 @@ export interface MCPStatus {
   delete: Record<string, boolean>
   /** The exact `claude mcp add` line, assembled by Go so nobody mistypes it. */
   snippet?: string
+  /** The same for Codex, which wants the token as an environment variable's
+   *  name rather than a header, so it is two lines and not an edit of the one
+   *  above. */
+  codexSnippet?: string
   error?: string
 }
 
@@ -225,6 +229,10 @@ export interface Transfer {
   files?: number
   filesDone?: number
   currentRel?: string
+  /** The bytes already moved are still on disk, so this can be picked up. */
+  resumable?: boolean
+  /** Where the current attempt began, so the bar does not restart at zero. */
+  resumed?: number
 }
 
 /** The outcome of an action that may require root (§7.2). */
@@ -426,6 +434,30 @@ export interface SecretPrompt {
   echo: boolean
 }
 
+export interface SSHDDirective {
+  keyword: string
+  value: string
+  file: string
+  line: number
+  conditional?: boolean
+}
+
+export interface SSHDNote {
+  code: string
+  level: 'warn' | 'info'
+  value: string
+  file: string
+  line: number
+}
+
+export interface SSHDReport {
+  files: string[]
+  declared: SSHDDirective[]
+  matches?: SSHDDirective[]
+  notes?: SSHDNote[]
+  unreadable?: string[]
+}
+
 export interface ImportResult {
   path: string
   imported: number
@@ -478,6 +510,7 @@ interface Bindings {
 
   HostMetrics(id: string): Promise<MetricsView>
   HostNetwork(id: string): Promise<NetworkView>
+  SSHDConfig(id: string): Promise<SSHDReport>
   FollowServiceLog(
     id: string,
     unit: string,
@@ -533,9 +566,11 @@ interface Bindings {
   StartUpload(id: string, localPaths: string[], remoteDir: string): Promise<string[]>
   StartDownload(id: string, remotePaths: string[], localDir: string): Promise<string[]>
   CancelTransfer(transferId: string): Promise<void>
+  ResumeTransfer(transferId: string): Promise<void>
   Transfers(): Promise<Transfer[]>
   ClearFinishedTransfers(): Promise<void>
   PickLocalFiles(): Promise<string[]>
+  PickLocalUploadDir(): Promise<string>
   PickLocalDir(): Promise<string>
   ListServices(id: string): Promise<ServiceUnit[]>
   ServiceAction(
@@ -682,6 +717,7 @@ export const ProcessExists = (id: string, pid: number) =>
 
 export const HostMetrics = (id: string) => api().HostMetrics(id)
 export const HostNetwork = (id: string) => api().HostNetwork(id)
+export const SSHDConfig = (id: string) => api().SSHDConfig(id)
 export const FollowServiceLog = (
   id: string,
   unit: string,
@@ -751,9 +787,11 @@ export const StartUpload = (id: string, localPaths: string[], remoteDir: string)
 export const StartDownload = (id: string, remotePaths: string[], localDir: string) =>
   api().StartDownload(id, remotePaths, localDir)
 export const CancelTransfer = (transferId: string) => api().CancelTransfer(transferId)
+export const ResumeTransfer = (transferId: string) => api().ResumeTransfer(transferId)
 export const GetTransfers = () => api().Transfers()
 export const ClearFinishedTransfers = () => api().ClearFinishedTransfers()
 export const PickLocalFiles = () => api().PickLocalFiles()
+export const PickLocalUploadDir = () => api().PickLocalUploadDir()
 export const PickLocalDir = () => api().PickLocalDir()
 export const ListServices = (id: string) => api().ListServices(id)
 export const ServiceAction = (

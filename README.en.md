@@ -44,7 +44,7 @@
 ---
 
 > [!NOTE]
-> **v1.0.0.** Verified on macOS and Windows clients, against **real Windows and Linux machines**.
+> **v1.1.0.** Verified on macOS and Windows clients, against **real Windows and Linux machines**.
 > On Linux hardware that covers the read side and file writes; transfers and privilege escalation are
 > still container-only. Exactly what has and has not been checked is written down in
 > [What is and is not verified](docs/support.en.md).
@@ -88,18 +88,19 @@ All the server does is **run commands it already had and hand back text**. Which
 
 | | |
 |---|---|
-| **Files** | Browse as a tree, upload, download (with progress and cancel), rename, delete, permissions (checkboxes or `chmod 755` typed directly) |
+| **Files** | Browse as a tree, **filter by name**, upload, download (with progress, cancel and **resume after an interruption**), whole folders, rename, delete, permissions (checkboxes or `chmod 755` typed directly) |
 | **Code editing** | Split view beside the tree, file tabs, syntax highlighting for 24 languages, find/replace, **a diff before every save**, **atomic saves** (temp file + rename) |
 | **Services** | systemd units / Windows services. List, filter, start/stop/restart, set start-at-boot, **live log tailing** (Linux) |
 | **Processes** | A task-manager table. Sort, search, tree view, terminate (TERM then KILL), change priority |
 | **Containers** | Docker and Podman cards. Start/stop/restart/remove, **live log tailing**, image and volume cleanup |
-| **Network** | Interfaces and listening ports. **Flags which ones are reachable from outside** |
+| **Network** | Interfaces and listening ports. **Flags which ones are reachable from outside**. Reviews the sshd configuration |
 | **Sessions** | Who is logged in to this server, and cutting any of them off |
 | **Scheduled jobs** | systemd timers. Next and last run |
 | **Terminal** | xterm.js PTY, multiple tabs. `code .` and `vi foo.conf` are **caught by the app** and open in the file tab. They are never sent to the server, so neither VS Code nor vi needs to exist there |
 | **Monitoring** | CPU, memory, disk summary bar with sparklines |
 | **Command Log** | **Every command the GUI runs, live.** Click to copy |
 | **MCP** | Claude Code and Claude Desktop read and change your servers through this app. Per-server opt-in, changes are approved, **and can be undone** |
+| **Connecting** | Password, key, agent, 2FA. Import from `~/.ssh/config`. One **ProxyJump** hop |
 | **Language** | English and Korean. Follows your OS on first run; switch with `KO`/`EN` at the bottom of the sidebar |
 
 ### It does not hide what it ran
@@ -159,7 +160,7 @@ Grab a build from the [releases page](https://github.com/cpprhtn/LiteDeck/releas
 **On the server side.** Linux needs nothing if you can already SSH into it. Windows needs the OpenSSH
 server switched on. To reach a machine at home from outside, a mesh VPN beats opening a port on your
 router — [preparing the server](docs/install.en.md#preparing-the-server) ·
-[remote access without an account](docs/remote-access.en.md)
+[reaching it over Tailscale](docs/remote-access.en.md)
 
 ## When this is the right tool
 
@@ -183,7 +184,7 @@ something else is better. Which cases those are is written down in
 | [MCP integration](docs/mcp.en.md) | 17 tools, the approval policy, undo, the safeguards |
 | [Features in detail](docs/features.en.md) | The Command Log and the editor |
 | [Install and server setup](docs/install.en.md) | Getting past the first-launch warning, enabling OpenSSH on Windows |
-| [Remote access without an account](docs/remote-access.en.md) | Tailscale, Headscale, WireGuard |
+| [Reaching a machine over Tailscale](docs/remote-access.en.md) | Your home machine without port forwarding. Tailscale SSH, MCP, subnet routers, and doing it without an account |
 | [Build from source](docs/building.en.md) | Building and testing |
 
 ## Contributing

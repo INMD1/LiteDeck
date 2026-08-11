@@ -26,6 +26,15 @@ import { t } from './i18n'
 
 type Tab = 'connection' | 'permissions' | 'changes'
 
+// Which client the paste line is written for.
+//
+// Two clients, two shapes, and the second cannot be derived from the first by
+// hand: Claude Code takes the token as a header value, Codex takes the *name* of
+// an environment variable holding it. Someone editing the Claude line into a
+// Codex one registers a server that authenticates against the literal string
+// "LITEDECK_MCP_TOKEN" and reads the failure as ours.
+type Client = 'claude' | 'codex'
+
 export function McpPanel({
   hosts,
   onClose,
@@ -41,6 +50,7 @@ export function McpPanel({
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [reveal, setReveal] = useState(false)
+  const [client, setClient] = useState<Client>('claude')
 
   const load = useCallback(async () => {
     try {
@@ -76,10 +86,12 @@ export function McpPanel({
     }
   }
 
+  const snippet = client === 'codex' ? state?.codexSnippet : state?.snippet
+
   const copy = async () => {
-    if (!state?.snippet) return
+    if (!snippet) return
     try {
-      await navigator.clipboard.writeText(state.snippet)
+      await navigator.clipboard.writeText(snippet)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch (e) {
@@ -163,10 +175,39 @@ export function McpPanel({
 
                 <div className="mcp-endpoint">
                   <label className="muted small">{t('클라이언트에 붙여넣기')}</label>
-                  <code className="mono mcp-snippet selectable">{state.snippet}</code>
+                  {/* Product names, left untranslated on purpose: they are what
+                      the user typed to get here. */}
+                  <div className="mcp-clients">
+                    <button
+                      data-on={client === 'claude' || undefined}
+                      onClick={() => {
+                        setClient('claude')
+                        setCopied(false)
+                      }}
+                    >
+                      Claude Code
+                    </button>
+                    <button
+                      data-on={client === 'codex' || undefined}
+                      onClick={() => {
+                        setClient('codex')
+                        setCopied(false)
+                      }}
+                    >
+                      Codex
+                    </button>
+                  </div>
+                  <code className="mono mcp-snippet selectable">{snippet}</code>
                   <button className="primary small-btn" onClick={() => void copy()}>
                     {copied ? t('복사됨') : t('복사')}
                   </button>
+                  {client === 'codex' && (
+                    <span className="muted small">
+                      {t(
+                        'Codex 는 토큰을 값이 아니라 환경변수 이름으로 받습니다. 두 줄을 함께 붙여넣으세요. 저자는 Claude Code 로만 확인했고 Codex 로는 확인하지 못했습니다.',
+                      )}
+                    </span>
+                  )}
                 </div>
 
                 {/* Learned the hard way: after updating LiteDeck the client keeps
@@ -184,12 +225,10 @@ export function McpPanel({
 
         {tab === 'permissions' && (
           <div className="mcp-tabbody">
-            <p className="muted small">
-              {t(
-                '기본은 전부 꺼짐입니다. 호스트를 등록했다고 MCP 가 볼 수 있게 되지는 않습니다. 변경은 파일만 물어보고 재시작 등은 그냥 실행합니다 — 승인창이 서버 현재 내용 대비 diff 를 보여주는데, 그건 클라이언트가 가질 수 없는 정보이기 때문입니다.',
-              )}
-            </p>
-
+            {/* No preamble. Every toggle below starts off, and the dropdown
+                says what each mode does — a paragraph restating that is read
+                once, believed, and then in the way forever. Why the modes are
+                shaped the way they are belongs in docs/mcp.md. */}
             {hosts.length === 0 && (
               <div className="placeholder small">{t('등록된 호스트가 없습니다.')}</div>
             )}
@@ -254,10 +293,11 @@ export function McpPanel({
 
         {tab === 'changes' && (
           <div className="mcp-tabbody">
+            {/* The two facts somebody looking at this list acts on: how long
+                they have, and that nothing of this is on the server. Why the
+                feature exists is not one of them. */}
             <p className="muted small">
-              {t(
-                '변경 전 내용을 이 컴퓨터에 보관합니다. 안 묻기로 두고 자리를 비웠을 때 방어 대신 남는 것이 이것입니다. 24시간이 지나면 알아서 지워지고, 서버에는 아무것도 남기지 않습니다.',
-              )}
+              {t('변경 전 내용을 이 컴퓨터에 24시간 보관합니다. 서버에는 아무것도 남기지 않습니다.')}
             </p>
             {changes.length === 0 && (
               <div className="placeholder small">{t('아직 없습니다.')}</div>

@@ -17,6 +17,7 @@ This section separates **what has actually been run** from what merely ought to 
 | **Server** | Ubuntu 22.04.5 / systemd 249 | Full flow: services (JSON path), files, processes, timers, log tailing, privilege escalation |
 | **Server** | Ubuntu 20.04.6 / systemd 245 | Service **table-parsing fallback** (the version with no JSON output) |
 | **Server** | Alpine 3.20 + OpenSSH | Transport: SFTP, reconnect, injection defence, concurrent sessions |
+| **Jumping** | Two Alpine containers (bastion + target) | ProxyJump, with the target publishing no port so it is **genuinely unreachable directly** |
 | **Containers** | docker 28 (dind) | Containers, images, volumes |
 
 **The one real Linux machine is the row above.** An Ubuntu 24.04.4 server was driven through the
@@ -30,12 +31,12 @@ The Linux client is **link-verified only**. Ubuntu 22.04 resolves `libwebkit2gtk
 
 | | Status |
 |---|---|
-| **Write paths on real Linux hardware** | Transfers, completing a sudo escalation, the terminal PTY and log tailing were only exercised in containers |
+| **Write paths on real Linux hardware** | Transfers (whole folders and resuming included), completing a sudo escalation, the terminal PTY and log tailing were only exercised in containers |
 | **Linux client at runtime** | Links correctly; window never opened |
 | **Debian, RHEL/Rocky 8** | Share the systemd 245 table-parsing path, so they should work, but untested |
 | **Podman** | Docker-compatible CLI, so the parser is shared, but never run |
 | **Windows containers** | The test machine had no Docker |
-| **ProxyJump / multi-hop SSH** | Not implemented |
+| **ProxyJump on real hardware** | Verified against two containers (bastion + target). Never tried against an actual bastion. Multi-hop is not implemented and is refused |
 | **macOS and BSD servers** | No adapter. Connecting works and **files and terminal do too**; the other tabs explain themselves |
 | **Remote → local drag** | Wails v2 has no drag-out API. Use the download button |
 
