@@ -761,6 +761,30 @@ button.danger {
   min-width: 140px;
 }
 
+/* The filter sits beside the address bar rather than on a row of its own: two
+   inputs fit side by side in a full-width tree, and the toolbar's wrapping
+   drops the filter to its own line once the editor squeezes the tree. */
+.tree-filter {
+  position: relative;
+  display: flex;
+  flex: 0 1 190px;
+  min-width: 120px;
+}
+.tree-filter .search {
+  max-width: none;
+  padding-right: 22px;
+}
+.tree-filter-clear {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 26px;
+  width: 22px;
+  padding: 0;
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
 /* One visible pixel, nine grabbable ones: a divider you can hit without a bar
    down the middle of the window. */
 .split-handle {
@@ -1495,14 +1519,40 @@ button.danger {
   flex-direction: column;
   gap: 2px;
 }
-.net-table .trow,
-.net-table .thead {
+/* These tables are laid out in the flow, not by the virtualiser: .trow is
+   absolutely positioned because the file listing moves rows with a transform,
+   and without this reset every row in a plain table stacks at the top. */
+.net-table .thead,
+.net-table .trow {
   position: static;
   transform: none;
+}
+
+.sshd-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-3);
+}
+.sshd-note {
+  display: grid;
+  grid-template-columns: 84px 1fr auto;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+}
+.sshd-note > .badge {
+  justify-self: start;
 }
 .net-row {
   height: 28px;
   padding: 0 var(--sp-2);
+}
+/* A wildcard bind, marked and not judged. Loud enough to find while scrolling,
+   quiet enough that it does not read as a mistake — binding to 0.0.0.0 is
+   usually deliberate. */
+.net-row [data-wildcard] {
+  color: var(--warn);
 }
 .net-warnings {
   padding: var(--sp-2) var(--sp-4);
@@ -1759,6 +1809,32 @@ button.danger {
 }
 .mcp-tabbody {
   min-height: 220px;
+}
+/* Which client the paste line is written for. Segmented rather than tabbed:
+   these are two spellings of one thing, not two places to be. */
+.mcp-clients {
+  display: flex;
+  gap: 2px;
+  margin-bottom: var(--sp-1);
+}
+.mcp-clients button {
+  height: auto;
+  padding: 3px var(--sp-2);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-muted);
+}
+.mcp-clients button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.mcp-clients button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+.mcp-clients button[data-on] {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .mcp-host {
   padding: var(--sp-2) 0;
