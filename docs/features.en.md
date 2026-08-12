@@ -99,6 +99,42 @@ bytes at the seam disagree, the resume is refused and the half-finished file is 
 Folder transfers are not resumable. Skipping already-copied files on size alone would keep a stale
 copy of anything that changed without changing length.
 
+## Compose: act on the project, not one container
+
+Containers Compose started are grouped by project, and the group header carries buttons
+that act on all of it.
+
+| Where you press | What runs |
+|---|---|
+| Start/Stop/Restart on a card | `docker start·stop·restart <id>` — that one container |
+| Start/Stop/Restart all, on the group header | `docker compose --project-name <p> start·stop·restart` |
+
+**Nothing asks you for a scope.** Where you press is the scope. Asking was considered and
+rejected: on a server run mostly through Compose that puts a dialog on nearly every click,
+while the common case is still one container — which teaches people to dismiss the dialog
+without reading it.
+
+Acting on the project takes the other services with it, so the containers it will touch
+are listed first and confirmed — **from what is already on screen, so the confirmation
+costs the server nothing.**
+
+The count on the header is the whole project regardless of the filter. A number that
+disagreed with what the button next to it touches would be a lie.
+
+**Working out which project a container belongs to costs no extra command.** Compose
+writes the answer into labels, and those labels are already in the `docker ps` output the
+card list is built from. Finding the project by searching the filesystem, or by calling
+`docker inspect` per container, would turn one listing into twenty round trips on a
+server running twenty containers.
+
+**The compose file is never read.** The project is addressed by name alone, and Compose
+recovers the rest from the labels on the running containers. So this still works when the
+file sits somewhere this account cannot read, or is no longer there at all — which is the
+ordinary case for something deployed to a server from a source tree kept elsewhere.
+
+There is no `down`, `up` or `run`. Those do a different kind of thing than restart, and
+do not belong beside it.
+
 ## Reviewing the sshd configuration
 
 Below the network tab, LiteDeck reads the server's sshd configuration and says what is worth

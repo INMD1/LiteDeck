@@ -265,6 +265,16 @@ export interface Container {
   exitCode: number
   networks?: string[]
   size?: string
+  /** Set when Compose started this container; absent otherwise. */
+  compose?: Compose
+}
+
+/** The Compose project and service a container belongs to (§4.5). */
+export interface Compose {
+  project: string
+  service: string
+  /** From `compose run`. Part of the project, but not of its declared set. */
+  oneOff?: boolean
 }
 
 /** An open terminal tab (§4.6). */
@@ -471,6 +481,7 @@ interface Bindings {
   EndSSHSession(hostID: string, pid: number): Promise<ActionResult>
   Bootstrap(): Promise<BootstrapData>
   Platform(): Promise<Platform>
+  ReadClipboard(): Promise<string>
   ColdStartMs(): Promise<number>
 
   ListHosts(): Promise<HostView[]>
@@ -523,6 +534,13 @@ interface Bindings {
   ContainerAction(
     id: string,
     containerId: string,
+    action: string,
+    elevate: boolean,
+  ): Promise<ActionResult>
+  ComposeAction(
+    id: string,
+    project: string,
+    service: string,
     action: string,
     elevate: boolean,
   ): Promise<ActionResult>
@@ -678,6 +696,9 @@ export const ListSSHSessions = (h: string) => api().ListSSHSessions(h)
 export const EndSSHSession = (h: string, pid: number) => api().EndSSHSession(h, pid)
 export const Bootstrap = () => api().Bootstrap()
 export const GetPlatform = () => api().Platform()
+/** Reads the system clipboard through Go — WebKit refuses to let the page do
+ *  it. See App.ReadClipboard. */
+export const ReadClipboard = () => api().ReadClipboard()
 export const ColdStartMs = () => api().ColdStartMs()
 
 export const ListHosts = () => api().ListHosts()
@@ -734,6 +755,13 @@ export const ContainerAction = (
   action: string,
   elevate: boolean,
 ) => api().ContainerAction(id, containerId, action, elevate)
+export const ComposeAction = (
+  id: string,
+  project: string,
+  service: string,
+  action: string,
+  elevate: boolean,
+) => api().ComposeAction(id, project, service, action, elevate)
 export const RemoveContainer = (
   id: string,
   containerId: string,
