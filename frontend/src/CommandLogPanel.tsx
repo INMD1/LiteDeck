@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ClearCommandLog, GetCommandLog, on, type CommandEntry } from './ipc'
+import { ResizeHandle } from './ResizeHandle'
+import { usePref } from './prefs'
 import { t } from './i18n'
 
 // The Command Log (§4.6) — every command the GUI ran, as it ran, copyable.
@@ -23,6 +25,7 @@ export function CommandLogPanel({
   // otherwise be buried in them. The log exists to answer "what did the GUI do
   // on my behalf", and that answer has to stay legible (§4.6).
   const [showBackground, setShowBackground] = useState(false)
+  const height = usePref('commandLogHeight')
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -65,7 +68,13 @@ export function CommandLogPanel({
   const shown = showBackground ? entries : entries.filter((e) => !e.kind)
 
   return (
-    <div className="cmdlog" data-open={open || undefined}>
+    <div
+      className="cmdlog"
+      data-open={open || undefined}
+      style={open ? { gridTemplateRows: `auto ${height}px` } : undefined}
+    >
+      {open && <ResizeHandle pref="commandLogHeight" label={t('Command Log 높이')} />}
+
       <button className="cmdlog-head" onClick={onToggle}>
         <span className="chevron">{open ? '▾' : '▸'}</span>
         <strong>Command Log</strong>

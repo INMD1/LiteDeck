@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { StopLogStream, on, type LogLine, type LogStream } from './ipc'
+import { ResizeHandle } from './ResizeHandle'
+import { usePref } from './prefs'
 import { t } from './i18n'
 
 // Live log output (§4.3, §4.5).
@@ -12,17 +14,35 @@ const MAX_LINES = 5000
 export function LogPanel({
   stream,
   onClose,
+  onReopen,
 }: {
   stream: LogStream
   onClose: () => void
+  /** Reopens the same log. Offered once the follow has ended — a container that
+   *  was not running when the panel opened is the usual reason, and it may be
+   *  running now. */
+  onReopen?: () => void
 }) {
   const [lines, setLines] = useState<LogLine[]>([])
   const [ended, setEnded] = useState<string | null>(null)
   const [follow, setFollow] = useState(true)
   const [filter, setFilter] = useState('')
+  // Shared across services and containers: it is one slot in the window, and a
+  // height set while reading a unit's log should hold when the next one opens.
+  const height = usePref('liveLogHeight')
   const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // This panel is reused, not remounted, when the next log opens — so every
+    // piece of the last one has to be cleared by hand. Without this the ended
+    // badge from a stream that finished stays up over a live one, and new lines
+    // are appended below the old container's, which is indistinguishable from
+    // the panel only updating when you press the button again.
+    setLines([])
+    setEnded(null)
+    setFollow(true)
+    setFilter('')
+
     const offData = on<LogLine>(`log:data:${stream.id}`, (line) =>
       // Bounded: a chatty unit would otherwise grow the DOM without limit and
       // the window would slow to a crawl over a long session.
@@ -57,11 +77,17 @@ export function LogPanel({
     : lines
 
   return (
-    <div className="logpanel">
+    <div className="logpanel" style={{ height }}>
+      <ResizeHandle pref="liveLogHeight" label={t('로그 창 높이')} />
       <div className="logpanel-head">
         <strong className="mono ellipsis">{stream.title}</strong>
         <span className="muted small">{t('{n}줄', { n: lines.length })}</span>
         {ended && <span className="badge warn">{ended}</span>}
+        {ended && onReopen && (
+          <button className="ghost small-btn" onClick={onReopen}>
+            {t('다시 연결')}
+          </button>
+        )}
         <input
           className="search"
           placeholder={t('필터')}

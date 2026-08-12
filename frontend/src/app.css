@@ -368,14 +368,33 @@
 /* Command Log ------------------------------------------------------------ */
 
 .cmdlog {
+  position: relative;
   grid-area: cmdlog;
   border-top: 1px solid var(--border);
   background: var(--bg-sunken);
   display: grid;
   grid-template-rows: auto 0fr;
 }
+/* The inline style overrides the row height when open; this is the fallback
+   for a first paint before the preference is read. */
 .cmdlog[data-open] {
   grid-template-rows: auto 200px;
+}
+
+/* Out of flow on purpose — see ResizeHandle.tsx. The panels it sits on have a
+   fixed set of children, and a handle in flow would take a row of its own. */
+.resize-handle {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 1;
+}
+.resize-handle:hover,
+.resize-handle:active {
+  background: var(--accent);
 }
 
 .cmdlog-head {
@@ -893,6 +912,25 @@ button.danger {
   white-space: nowrap;
 }
 
+.editor-zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+}
+.editor-zoom button {
+  padding: 0 var(--sp-2);
+  line-height: 1.4;
+}
+/* Fixed width so the row does not shift as the number goes 9 → 10. */
+.editor-zoom .mono {
+  flex: none;
+  min-width: 2ch;
+  text-align: center;
+  cursor: default;
+  user-select: none;
+}
+
 /* Tree rows. The twisty sits inside the name cell so indentation moves the name
    and nothing else — the size and date columns stay aligned at every depth. */
 .tree-name {
@@ -1179,18 +1217,56 @@ button.danger {
 
 /* Container cards -------------------------------------------------------- */
 
+/* The scroller. flex:1 is required, not decorative: without it this takes its
+   content height inside the flex-column view and an empty list collapses to
+   nothing, which reads as a broken tab. */
 .cards {
-  /* flex:1 is required, not decorative: without it this grid takes its content
-     height inside the flex-column view and an empty list collapses to nothing,
-     which reads as a broken tab. */
   flex: 1;
   overflow-y: auto;
   padding: var(--sp-3) var(--sp-4);
+  min-height: 0;
+}
+
+/* One compose project, or the containers belonging to none. The header is
+   where project-wide actions live: scope is expressed by which button you
+   press, not by a mode or a dialog. */
+.card-group + .card-group {
+  margin-top: var(--sp-4);
+}
+.card-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0 var(--sp-2);
+}
+.card-group-head .twisty {
+  border: 0;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  padding: 0 var(--sp-1);
+  height: auto;
+  cursor: pointer;
+}
+.card-group-name {
+  font-weight: 600;
+}
+.card-group-head .spacer {
+  flex: 1;
+}
+/* Smaller than the card buttons on purpose. These act on more, but they are
+   not the thing being looked at — the containers are. */
+.card-group-head button:not(.twisty) {
+  height: 24px;
+  font-size: var(--text-sm);
+  padding: 0 var(--sp-2);
+}
+
+.card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: var(--sp-3);
   align-content: start;
-  min-height: 0;
 }
 
 .card {
@@ -1212,10 +1288,17 @@ button.danger {
 
 .card-head {
   display: grid;
-  grid-template-columns: 10px auto 1fr;
+  /* The trailing track is for a badge. Without it a fourth child drops to a
+     second row and lands in the 10px dot column, which renders a short label
+     one character per line. Cards with no badge get a zero-width track. */
+  grid-template-columns: 10px auto 1fr auto;
   align-items: baseline;
   gap: var(--sp-2);
   min-width: 0;
+}
+.card-head .badge {
+  margin-left: 0;
+  white-space: nowrap;
 }
 .card-meta {
   display: flex;
@@ -1455,9 +1538,17 @@ button.danger {
 /* Live log panel --------------------------------------------------------- */
 
 .logpanel {
+  position: relative;
   display: flex;
   flex-direction: column;
+  /* Overridden inline by the stored height; this is the first-paint fallback
+     and the value the handle's double-click returns to. */
   height: 260px;
+  /* flex:none so the list above cannot squash it, and a viewport cap so a
+     height dragged out on a large screen does not swallow that list whole when
+     the window is later made short. */
+  flex: none;
+  max-height: 70vh;
   border-top: 1px solid var(--border);
   background: var(--bg-sunken);
 }
