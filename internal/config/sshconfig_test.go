@@ -87,8 +87,8 @@ func TestImportSSHConfig(t *testing.T) {
 	if filepath.Base(web.IdentityFile) != "id_ed25519" || web.IdentityFile[0] == '~' {
 		t.Errorf("identity file not expanded: %q", web.IdentityFile)
 	}
-	if len(web.Auth) != 1 || web.Auth[0] != AuthKey {
-		t.Errorf("auth = %v, want key only (agent disabled by default)", web.Auth)
+	if len(web.Auth) == 0 || web.Auth[0] != AuthAgent {
+		t.Errorf("agent should be tried first: %v", web.Auth)
 	}
 
 	// One Host line naming several aliases yields one entry each.
@@ -101,8 +101,8 @@ func TestImportSSHConfig(t *testing.T) {
 		if h.Hostname != "db.internal" || h.User != "postgres" || h.Port != 22 {
 			t.Errorf("%s = %+v", name, h)
 		}
-		if len(h.Auth) != 1 || h.Auth[0] != AuthPassword {
-			t.Errorf("%s auth = %v, want password only (agent disabled by default)", name, h.Auth)
+		if len(h.Auth) != 2 || h.Auth[0] != AuthAgent || h.Auth[1] != AuthPassword {
+			t.Errorf("%s auth = %v, want agent then password", name, h.Auth)
 		}
 	}
 

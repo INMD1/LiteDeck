@@ -21,7 +21,7 @@ export function emptyHost(): Host {
     hostname: '',
     port: 22,
     user: '',
-    auth: ['password'],
+    auth: ['agent', 'password'],
   }
 }
 
