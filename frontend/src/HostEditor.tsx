@@ -21,8 +21,12 @@ export function emptyHost(): Host {
     hostname: '',
     port: 22,
     user: '',
-    auth: ['agent', 'password'],
+    auth: ['password'],
   }
+}
+
+function editorDraft(host: Host): Host {
+  return host.port === 0 ? { ...host, port: 22 } : host
 }
 
 export function HostEditor({
@@ -36,11 +40,11 @@ export function HostEditor({
   onSaved: () => void
   onError: (msg: string) => void
 }) {
-  const [draft, setDraft] = useState<Host>(host)
+  const [draft, setDraft] = useState<Host>(() => editorDraft(host))
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  useEffect(() => setDraft(host), [host])
+  useEffect(() => setDraft(editorDraft(host)), [host])
 
   const isNew = host.id === ''
   const set = <K extends keyof Host>(k: K, v: Host[K]) =>
