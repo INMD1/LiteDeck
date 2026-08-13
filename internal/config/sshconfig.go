@@ -69,9 +69,9 @@ func ImportSSHConfig(path string) ([]Host, error) {
 			}
 		}
 		if h.IdentityFile != "" {
-			h.Auth = []AuthMethod{AuthKey}
+			h.Auth = []AuthMethod{AuthAgent, AuthKey}
 		} else {
-			h.Auth = []AuthMethod{AuthPassword}
+			h.Auth = []AuthMethod{AuthAgent, AuthPassword}
 		}
 		out = append(out, h)
 	}
