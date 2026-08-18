@@ -85,7 +85,7 @@ All the server does is **run commands it already had and hand back text**. Which
 
 | | |
 |---|---|
-| **Files** | Browse as a tree, **filter by name**, upload, download (with progress, cancel and **resume after an interruption**), whole folders, rename, delete, permissions (checkboxes or `chmod 755` typed directly) |
+| **Files** | Browse as a tree, **filter by name**, upload, download (with progress, cancel and **resume after an interruption**), whole folders, rename, delete, permissions (checkboxes or `chmod 755` typed directly). Files the editor will not open come up **read-only** — images are drawn, anything else shows its opening bytes as hex |
 | **Code editing** | Split view beside the tree, file tabs, syntax highlighting for 24 languages, find/replace, **a diff before every save**, **atomic saves** (temp file + rename) |
 | **Services** | systemd units / Windows services. List, filter, start/stop/restart, set start-at-boot, **live log tailing** (Linux) |
 | **Processes** | A task-manager table. Sort, search, tree view, terminate (TERM then KILL), change priority |
@@ -94,7 +94,7 @@ All the server does is **run commands it already had and hand back text**. Which
 | **Sessions** | Who is logged in to this server, and cutting any of them off |
 | **Scheduled jobs** | systemd timers. Next and last run |
 | **Terminal** | xterm.js PTY, multiple tabs. `code .` and `vi foo.conf` are **caught by the app** and open in the file tab. They are never sent to the server, so neither VS Code nor vi needs to exist there |
-| **Monitoring** | CPU, memory, disk summary bar with sparklines |
+| **Monitoring** | CPU, memory, disk summary bar with sparklines. NVIDIA cards add **utilisation, fan, temperature and VRAM** (nvidia-smi) |
 | **Command Log** | **Every command the GUI runs, live.** Click to copy |
 | **MCP** | Claude Code and Claude Desktop read and change your servers through this app. Per-server opt-in, changes are approved, **and can be undone** |
 | **Connecting** | Password, key, agent, 2FA. Import from `~/.ssh/config`. One **ProxyJump** hop |

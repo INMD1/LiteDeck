@@ -87,6 +87,11 @@ export interface MCPStatus {
   hosts: Record<string, boolean>
   write: Record<string, WritePolicyView>
   delete: Record<string, boolean>
+  /** The port actually bound, and the one asked for. They differ when something
+   *  else held the preferred port. */
+  port?: number
+  wantedPort?: number
+  portPinned?: boolean
   /** The exact `claude mcp add` line, assembled by Go so nobody mistypes it. */
   snippet?: string
   /** The same for Codex, which wants the token as an environment variable's
@@ -277,6 +282,19 @@ export interface Compose {
   oneOff?: boolean
 }
 
+/** A read-only look at a file the editor will not open (§4.2). */
+export interface FilePreview {
+  path: string
+  size: number
+  /** "image" when the webview can draw it, "binary" otherwise. */
+  kind: 'image' | 'binary'
+  mime: string
+  /** base64. The whole file for an image, a bounded prefix otherwise. */
+  data: string
+  truncated?: boolean
+  tooLarge?: boolean
+}
+
 /** An open terminal tab (§4.6). */
 export interface TerminalInfo {
   id: string
@@ -313,6 +331,23 @@ export interface Filesystem {
   percent: number
 }
 
+/** One NVIDIA card (§4.7). NVIDIA only: nvidia-smi ships with every driver and
+ *  answers over a plain SSH connection; AMD and Intel need a package that is not
+ *  installed by default. */
+export interface GPU {
+  index: number
+  name: string
+  /** -1 where the card does not report the figure, the same convention cpu uses.
+   *  Passively cooled datacentre cards have no fan reading, and a 0 there would
+   *  read as a stopped fan. */
+  utilization: number
+  fan: number
+  tempC: number
+  memTotal: number
+  memUsed: number
+  memPercent: number
+}
+
 export interface MetricsView {
   /** -1 until a second sample exists — the counters are totals since boot. */
   cpu: number
@@ -332,6 +367,8 @@ export interface MetricsView {
   filesystems: Filesystem[]
   /** The filtered, sorted subset worth showing. */
   disks: Filesystem[]
+  /** Empty on every host without an NVIDIA card, which is most of them. */
+  gpus: GPU[]
 }
 
 /** An open live-log follow (§4.3, §4.5). */
@@ -490,6 +527,7 @@ interface Bindings {
   SetMCPEnabled(enabled: boolean): Promise<MCPStatus>
   SetMCPHost(hostID: string, allowed: boolean): Promise<MCPStatus>
   RotateMCPToken(): Promise<MCPStatus>
+  PinMCPPort(port: number): Promise<MCPStatus>
   SetMCPWritePolicy(hostID: string, mode: string, minutes: number): Promise<MCPStatus>
   AnswerMCPWrite(id: string, approved: boolean): Promise<void>
   MCPChanges(hostID: string): Promise<MCPChange[]>
@@ -578,6 +616,7 @@ interface Bindings {
     typed: string,
   ): Promise<ActionResult>
   ReadTextFile(id: string, p: string): Promise<TextFile>
+  PreviewFile(id: string, p: string): Promise<FilePreview>
   WriteTextFile(id: string, p: string, content: string): Promise<ActionResult>
   SaveTextFile(id: string, req: SaveRequest): Promise<SaveResult>
 
@@ -707,6 +746,7 @@ export const MCPState = () => api().MCPState()
 export const SetMCPEnabled = (enabled: boolean) => api().SetMCPEnabled(enabled)
 export const SetMCPHost = (hostID: string, allowed: boolean) => api().SetMCPHost(hostID, allowed)
 export const RotateMCPToken = () => api().RotateMCPToken()
+export const PinMCPPort = (port: number) => api().PinMCPPort(port)
 export const SetMCPWritePolicy = (hostID: string, mode: string, minutes: number) =>
   api().SetMCPWritePolicy(hostID, mode, minutes)
 export const AnswerMCPWrite = (id: string, approved: boolean) => api().AnswerMCPWrite(id, approved)
@@ -805,6 +845,7 @@ export const DeletePaths = (
   typed: string,
 ) => api().DeletePaths(id, paths, recursive, typed)
 export const ReadTextFile = (id: string, p: string) => api().ReadTextFile(id, p)
+export const PreviewFile = (id: string, p: string) => api().PreviewFile(id, p)
 export const WriteTextFile = (id: string, p: string, content: string) =>
   api().WriteTextFile(id, p, content)
 export const SaveTextFile = (id: string, req: SaveRequest) =>

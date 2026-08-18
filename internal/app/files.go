@@ -1,16 +1,20 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cpprhtn/LiteDeck/internal/i18n"
 	"github.com/pkg/sftp"
@@ -32,6 +36,23 @@ const maxListEntries = 20000
 // the file is almost certainly not something to edit in a dialog, and loading
 // it would freeze the webview.
 const maxEditableBytes = 2 << 20 // 2 MiB
+
+// maxPreviewBytes bounds an image, which is the only preview that needs the
+// whole file. Higher than the editor's limit because nothing is parsed or kept
+// in a document model, but still bounded: this crosses the IPC boundary as
+// base64, a third larger again. Anything that is not an image is answered from
+// its head, so a blob's size never decides whether it can be looked at.
+const maxPreviewBytes = 8 << 20 // 8 MiB
+
+// hexPreviewBytes is how much of a non-image binary is worth showing. Enough to
+// read a magic number and any header strings, which is what somebody asking
+// "what is this file" actually wants.
+const hexPreviewBytes = 4 << 10 // 4 KiB
+
+// binarySniffBytes is how much of a file is read before deciding it is not
+// text. git uses 8000 for the same judgement; the number is a compromise
+// between catching a NUL that appears late and not paying for the whole file.
+const binarySniffBytes = 8 << 10 // 8 KiB
 
 // FileEntry is one row of the file explorer.
 type FileEntry struct {
@@ -364,18 +385,152 @@ func (a *App) ReadTextFile(hostID, p string) (TextFile, error) {
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(io.LimitReader(f, maxEditableBytes+1))
-	if err != nil {
+	// Decided from the head, not from the whole file. Reading two megabytes of
+	// an ELF binary to find the NUL in its fifth byte is work the server does
+	// for nothing, and the caller goes straight on to ask for a preview.
+	head := make([]byte, binarySniffBytes)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return out, fmt.Errorf("%s: %w", cleaned, err)
 	}
-	// A NUL byte means this is not text; rendering it in a textarea would
-	// corrupt the file the moment the user pressed save.
-	if idx := strings.IndexByte(string(data), 0); idx >= 0 {
+	head = head[:n]
+	if looksBinary(head, int64(n) >= fi.Size()) {
 		out.Binary = true
 		return out, nil
 	}
-	out.Content = string(data)
+
+	rest, err := io.ReadAll(io.LimitReader(f, maxEditableBytes+1-int64(n)))
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", cleaned, err)
+	}
+	out.Content = string(append(head, rest...))
 	return out, nil
+}
+
+// looksBinary judges a file by its opening bytes.
+//
+// A NUL is the classic tell and the one that matters most: rendering it in the
+// editor and saving would write it back through a UTF-8 string round trip.
+// Invalid UTF-8 is the other, and it is the one that actually corrupts — bytes
+// that are not text become replacement characters on the way in and are saved
+// as those, silently rewriting the file.
+//
+// `complete` says the head is the entire file. When it is not, a multi-byte
+// character can be cut in half at the boundary, and calling a UTF-8 file binary
+// for the sake of its 8192nd byte would be wrong — so up to three trailing
+// bytes are given the benefit of the doubt.
+func looksBinary(head []byte, complete bool) bool {
+	if bytes.IndexByte(head, 0) >= 0 {
+		return true
+	}
+	if utf8.Valid(head) {
+		return false
+	}
+	if complete {
+		return true
+	}
+	for drop := 1; drop <= 3 && drop <= len(head); drop++ {
+		if utf8.Valid(head[:len(head)-drop]) {
+			return false
+		}
+	}
+	return true
+}
+
+// FilePreview is a read-only look at a file the editor will not open (§4.2).
+//
+// Refusing to show a binary at all was the whole answer until now: the file
+// explorer raised a toast and there was no way to see the thing. Somebody who
+// opens a .png on a server wants to look at it, and somebody who opens an
+// unknown blob wants to know what it is — neither needs an editor.
+type FilePreview struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+	// Kind is "image" when the bytes are one the webview can draw, "binary"
+	// otherwise. Sniffed from content rather than the extension: a screenshot
+	// saved as .log is still a screenshot, and a .png that is really a tarball
+	// must not be handed to an <img>.
+	Kind string `json:"kind"`
+	MIME string `json:"mime"`
+	// Data is base64. For an image it is the whole file, for anything else the
+	// first hexPreviewBytes.
+	Data string `json:"data"`
+	// Truncated says Data is a prefix, so the screen can say so rather than
+	// implying the file is 4 KiB long.
+	Truncated bool `json:"truncated"`
+	// TooLarge means not even the preview would load it.
+	TooLarge bool `json:"tooLarge"`
+}
+
+// PreviewFile reads a file for the read-only viewer.
+func (a *App) PreviewFile(hostID, p string) (FilePreview, error) {
+	cleaned, err := CleanRemotePath(p)
+	if err != nil {
+		return FilePreview{}, err
+	}
+	client, err := a.mgr.SFTP(hostID)
+	if err != nil {
+		return FilePreview{}, err
+	}
+
+	fi, err := client.Stat(cleaned)
+	if err != nil {
+		return FilePreview{}, fmt.Errorf("%s: %w", cleaned, err)
+	}
+	out := FilePreview{Path: cleaned, Size: fi.Size(), Kind: "binary"}
+
+	f, err := client.Open(cleaned)
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", cleaned, err)
+	}
+	defer f.Close()
+
+	// The head is read first and is often the whole cost. Sniffing needs a few
+	// hundred bytes and the hex view shows this much, so a blob of any size —
+	// a core dump, a database, a model checkpoint — is answered by one 4 KiB
+	// read rather than by pulling megabytes across to throw them away.
+	head := make([]byte, hexPreviewBytes)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return out, fmt.Errorf("%s: %w", cleaned, err)
+	}
+	head = head[:n]
+
+	out.MIME = sniffMIME(head)
+	if !strings.HasPrefix(out.MIME, "image/") {
+		out.Data = base64.StdEncoding.EncodeToString(head)
+		out.Truncated = fi.Size() > int64(n)
+		return out, nil
+	}
+
+	// Only an image needs the rest, because only an image is shown whole.
+	out.Kind = "image"
+	if fi.Size() > maxPreviewBytes {
+		out.TooLarge = true
+		return out, nil
+	}
+	rest, err := io.ReadAll(io.LimitReader(f, maxPreviewBytes-int64(n)))
+	if err != nil {
+		return out, fmt.Errorf("%s: %w", cleaned, err)
+	}
+	out.Data = base64.StdEncoding.EncodeToString(append(head, rest...))
+	return out, nil
+}
+
+// sniffMIME identifies the bytes without trusting the file name.
+//
+// SVG is excluded on purpose even though a webview draws it: it is a document
+// that can carry script, and this viewer shows whatever is on a server the user
+// may not fully control. It falls through to the hex path, where it is inert.
+func sniffMIME(data []byte) string {
+	mime := http.DetectContentType(data)
+	if i := strings.IndexByte(mime, ';'); i >= 0 {
+		mime = strings.TrimSpace(mime[:i])
+	}
+	if mime == "image/svg+xml" || mime == "text/xml" {
+		return "application/octet-stream"
+	}
+	return mime
 }
 
 // SaveRequest is one save from the editor (§4.7-3).
