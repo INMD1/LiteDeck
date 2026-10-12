@@ -1,6 +1,6 @@
 # What is verified, and what this is not
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 What was checked and where, when this is the wrong tool, and what it deliberately does not do.
 

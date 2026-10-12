@@ -1,6 +1,6 @@
 # Build from source
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 ```bash
 # Needs: Go 1.26+, Node 20+, Wails v2

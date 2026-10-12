@@ -1,6 +1,6 @@
 # Server mode (access from a web browser)
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 You can run LiteDeck on a server and use it from a browser instead of as a
 desktop app. For environments that cannot run a native binary (execution

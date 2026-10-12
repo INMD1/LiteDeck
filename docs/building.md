@@ -1,6 +1,6 @@
 # 소스에서 빌드
 
-[← README](../README.md)
+[← README](../README.ko.md)
 
 ```bash
 # 필요: Go 1.26+, Node 20+, Wails v2
