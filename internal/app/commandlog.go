@@ -43,6 +43,9 @@ type CommandEntry struct {
 	// own actions. The panel marks these so a command nobody remembers asking
 	// for is attributable at a glance (§4.6).
 	Origin string `json:"origin,omitempty"`
+	// AI is the record of an AI tool call — who, which session, what it
+	// touched, how it ended. Set on the row the call produced; see ai_work.go.
+	AI *AIRecord `json:"ai,omitempty"`
 }
 
 // commandLogLimit bounds the in-memory history. The panel is a live view, not
@@ -297,7 +300,11 @@ func humanBytes(n int64) string {
 // arrive on their own lines a moment later, indistinguishable from a click,
 // which is correct: the server ran them the same way. What the user needs to
 // see is that something other than their own hands asked.
-func (l *commandLog) AICall(hostID, line string) {
+func (l *commandLog) AICall(hostID, line string) int {
+	return l.aiCall(hostID, line, nil)
+}
+
+func (l *commandLog) aiCall(hostID, line string, rec *AIRecord) int {
 	l.mu.Lock()
 	l.seq++
 	e := CommandEntry{
@@ -307,12 +314,29 @@ func (l *commandLog) AICall(hostID, line string) {
 		At:     time.Now().Format(time.RFC3339),
 		Status: "ok",
 		Origin: "ai",
+		AI:     rec,
 	}
 	l.entries = append(l.entries, e)
 	l.trim()
 	l.mu.Unlock()
 
 	l.emit("cmd:started", e)
+	return e.Seq
+}
+
+// finishAI puts the finished record on the row its call started.
+func (l *commandLog) finishAI(seq int, rec AIRecord) {
+	l.mu.Lock()
+	i := l.indexOf(seq)
+	var e CommandEntry
+	if i >= 0 {
+		l.entries[i].AI = &rec
+		e = l.entries[i]
+	}
+	l.mu.Unlock()
+	if i >= 0 {
+		l.emit("cmd:finished", e)
+	}
 }
 
 // AIWrite records a change an MCP client asked for, and what became of it.

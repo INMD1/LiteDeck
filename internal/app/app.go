@@ -59,6 +59,9 @@ type App struct {
 	mcp       mcpState
 	approvals *approvalBridge
 	rollback  *rollback.Store
+	// aiJournal is the AI rows of the Command Log, kept on disk for the work
+	// graph. See ai_work.go.
+	aiJournal *aiJournal
 
 	// emit sends an event to the frontend. It is a field rather than a direct
 	// call to the Wails runtime so the prompt bridge — the one piece of logic
@@ -176,6 +179,8 @@ func (a *App) boot() {
 	// What an AI overwrites is kept here, because the approval dialog stops
 	// being a safety net the moment somebody turns it off and goes to bed.
 	a.rollback = rollback.Open(dir)
+	a.applyRetention()
+	a.aiJournal = openAIJournal(dir)
 	// The stored choice if there is one, the environment otherwise. The frontend
 	// refines this a moment later with what the webview reports, which is the
 	// better answer where the two disagree — but a message raised before that

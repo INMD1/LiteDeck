@@ -186,6 +186,10 @@ var webRPCPinned = []string{
 	"SetMCPHost", "SetMCPHostDelete", "SetMCPHostExec", "SetMCPWritePolicy",
 	"SetShellHistoryAllowed", "SetTheme", "StartDownload", "StartUpload",
 	"StatPath", "StopLogStream", "SudoUnlocked",
+	// The AI work graph and named MCP clients. They read and write the app's own
+	// records and settings, as MCPChanges and RotateMCPToken already do.
+	"AIChange", "AIRecords", "AIRevert", "AIRevertSession",
+	"AddMCPClient", "RemoveMCPClient", "RenameMCPClient", "SetMCPRetention",
 	// Settings import and export. Every one refuses in server mode: they read and
 	// write files on the machine the app runs on, and in server mode that is the
 	// server box — /rpc would hand "write my host list to a file there, or read

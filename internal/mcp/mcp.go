@@ -243,7 +243,14 @@ func (s *Server) callTool(ctx context.Context, req request) []byte {
 		h.onCall(p.Name, p.Arguments)
 	}
 
-	value, err := tool.Handler(ctx, p.Arguments)
+	run := func(c context.Context) (any, error) { return tool.Handler(c, p.Arguments) }
+	var value any
+	var err error
+	if h.around != nil {
+		value, err = h.around(ctx, p.Name, p.Arguments, run)
+	} else {
+		value, err = run(ctx)
+	}
 	if err != nil {
 		return s.ok(req, errorResult(err.Error()))
 	}
