@@ -25,6 +25,9 @@ import { ServiceView } from './ServiceView'
 const TerminalView = lazy(() =>
   import('./TerminalView').then((m) => ({ default: m.TerminalView })),
 )
+// The AI work graph, with the diff view behind it. Opened from the rail, by
+// people who use MCP — everyone else never pays for it.
+const AIWorkView = lazy(() => import('./AIWorkView').then((m) => ({ default: m.AIWorkView })))
 import {
   BenchMode,
   ApplyLanguage,
@@ -35,6 +38,7 @@ import {
   ImportSSHConfig,
   ListHosts,
   on,
+  SetTheme,
   type BootstrapData,
   type ConnectionState,
   type Host,
@@ -43,12 +47,17 @@ import {
   type SecretPrompt,
   type ServerInfo,
   type MCPWritePrompt,
+  type AIRecord,
 } from './ipc'
 import { getLanguage, initLanguage, k, t, useT } from './i18n'
 import { initTheme } from './theme'
 import { isWebMode } from './webTransport'
 import { McpPanel } from './McpPanel'
 import { SyncPanel } from './SyncPanel'
+import { CommandPalette, isPaletteKey, type PaletteItem } from './CommandPalette'
+import { runTermAction, type TermAction } from './termCommands'
+import { TERM_THEMES } from './termThemes'
+import { setTheme as applyTheme } from './theme'
 import { McpHostBadge } from './McpHostBadge'
 import { closeHost } from './openFiles'
 import { initPlatform, matches } from './platform'
@@ -112,6 +121,12 @@ export default function App() {
   const [benchMode, setBenchMode] = useState<boolean | null>(null)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [syncOpen, setSyncOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  // The AI work screen replaces the host view while it is open. The host's tabs
+  // stay mounted underneath — hidden, and not polling — so going back finds
+  // them as they were.
+  const [aiView, setAiView] = useState(false)
+  const [aiLive, setAiLive] = useState(false)
   // The pending count, for the badge on the rail button. Kept here rather than in
   // the panel because the badge has to be visible while the panel is shut — that
   // is the only thing that makes a withheld change discoverable.
@@ -257,6 +272,22 @@ export default function App() {
     }
   }, [])
 
+  // A dot on the rail while an AI client is at work, so somebody on another
+  // screen knows there is something to watch. Two quiet minutes and it goes.
+  useEffect(() => {
+    let timer = 0
+    const off = on<AIRecord>('ai:record', (r) => {
+      if (r.kind === 'restore') return
+      setAiLive(true)
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => setAiLive(false), 120_000)
+    })
+    return () => {
+      off()
+      window.clearTimeout(timer)
+    }
+  }, [])
+
   const connect = async (id: string) => {
     setBusy(true)
     setError(null)
@@ -340,6 +371,24 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // The command palette: one key from anywhere, including a terminal.
+  //
+  // Above the early returns below, like every hook here: a hook that runs on
+  // some renders and not others is React losing count of its state.
+  //
+  // Caught on the window in the capture phase, before xterm's own textarea sees
+  // the key — otherwise a focused terminal would take it as input.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isPaletteKey(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      setPaletteOpen((v) => !v)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
   if (benchMode === null) return <div className="boot">{t('시작 중…')}</div>
   if (benchMode) return <Bench />
 
@@ -396,6 +445,86 @@ export default function App() {
         }))
       : []
 
+  // Built only while the palette is open, and not memoised: it is a few dozen
+  // entries, and a hook here would sit below the early returns above.
+  const paletteItems = (): PaletteItem[] => {
+    const items: PaletteItem[] = []
+    for (const h of hosts) {
+      items.push({
+        id: `host:${h.id}`,
+        group: k('호스트'),
+        label: '',
+        raw: h.name || h.hostname,
+        hint: `${h.user}@${h.hostname}`,
+        run: () => {
+          setActiveID(h.id)
+          if (h.state === 'disconnected') void connect(h.id)
+        },
+      })
+    }
+    for (const g of navGroups) {
+      for (const it of g.items) {
+        if (it.unsupported) continue
+        items.push({ id: `tab:${it.id}`, group: k('화면'), label: it.label,
+          run: () => {
+            setTab(it.id as Tab)
+            setAiView(false)
+          },
+        })
+      }
+    }
+    if (active && connected) {
+      // Terminal actions take the user to the terminal first: a split asked for
+      // from the services tab means "give me a terminal, split".
+      const term = (label: string, a: TermAction) =>
+        items.push({
+          id: `term:${a}`,
+          group: k('터미널'),
+          label,
+          run: () => {
+            setTab('terminal')
+            // The view may be mounting for the first time; give it a frame to
+            // register before asking.
+            requestAnimationFrame(() => requestAnimationFrame(() => runTermAction(a)))
+          },
+        })
+      term(k('새 터미널'), 'new-tab')
+      term(k('좌우로 나누기'), 'split-right')
+      term(k('위아래로 나누기'), 'split-down')
+      term(k('이 칸 닫기'), 'close-pane')
+      term(k('글자 크게'), 'font-bigger')
+      term(k('글자 작게'), 'font-smaller')
+      term(k('글자 크기 기본'), 'font-reset')
+    }
+    for (const th of TERM_THEMES) {
+      items.push({
+        id: `termtheme:${th.id}`,
+        group: k('터미널 색 테마'),
+        label: th.label,
+        run: () => setPref('termTheme', th.id),
+      })
+    }
+    for (const th of ['light', 'dark'] as const) {
+      items.push({
+        id: `theme:${th}`,
+        group: k('앱 테마'),
+        label: th === 'light' ? k('라이트') : k('다크'),
+        run: () => {
+          applyTheme(th)
+          void SetTheme(th).catch(() => {})
+        },
+      })
+    }
+    if (!selfMode) {
+      items.push({ id: 'open:ai', group: k('화면'), label: k('AI 작업'), run: () => setAiView(true) })
+    }
+    items.push({ id: 'open:mcp', group: k('설정'), label: k('MCP 연동 설정'), run: () => setMcpOpen(true) })
+    if (!selfMode) {
+      items.push({ id: 'open:sync', group: k('설정'), label: k('설정 동기화'), run: () => setSyncOpen(true) })
+    }
+    return items
+  }
+
   return (
     <div
       className="app"
@@ -405,7 +534,10 @@ export default function App() {
       <Rail
         hosts={hosts}
         activeID={activeID}
-        onSelect={setActiveID}
+        onSelect={(id) => {
+          setActiveID(id)
+          setAiView(false)
+        }}
         onConnect={(id) => void connect(id)}
         onDisconnect={(id) => void disconnect(id)}
         onImport={() => void doImport()}
@@ -418,8 +550,14 @@ export default function App() {
         listOpen={sidebarOpen}
         onToggleList={() => setPref('sidebarOpen', !sidebarOpen)}
         groups={navGroups}
-        current={tab}
-        onNavigate={(id) => setTab(id as Tab)}
+        current={aiView ? null : tab}
+        onNavigate={(id) => {
+          setTab(id as Tab)
+          setAiView(false)
+        }}
+        onOpenAI={selfMode ? undefined : () => setAiView(true)}
+        aiActive={aiView}
+        aiLive={aiLive}
         selfMode={selfMode}
         onHide={() => setPref('railOpen', false)}
         onShow={() => setPref('railOpen', true)}
@@ -430,12 +568,31 @@ export default function App() {
         <McpPanel hosts={hosts} onClose={() => setMcpOpen(false)} onError={setError} />
       )}
 
+      {paletteOpen && (
+        <CommandPalette items={paletteItems()} onClose={() => setPaletteOpen(false)} />
+      )}
+
       {syncOpen && (
         <SyncPanel onClose={() => setSyncOpen(false)} onError={setError} />
       )}
 
-      <main className="main">
-        <header className="main-head">
+      <main className="main" data-ai={aiView || undefined}>
+        {aiView && (
+          <>
+            <header className="main-head">
+              <div className="host-id">
+                <span className="host-title">{t('AI 작업')}</span>
+                <span className="muted small">{t('모든 호스트 · 최근 30일')}</span>
+              </div>
+            </header>
+            <Suspense fallback={<div className="placeholder">{t('불러오는 중…')}</div>}>
+              <ErrorBoundary label={t('AI 작업')}>
+                <AIWorkView hosts={hosts} onError={setError} onOpenMCP={() => setMcpOpen(true)} />
+              </ErrorBoundary>
+            </Suspense>
+          </>
+        )}
+        <header className="main-head" hidden={aiView}>
           {active ? (
             <>
               <div className="host-id">
@@ -510,7 +667,7 @@ export default function App() {
                 any one view of it, and because it is the one thing here worth
                 seeing before choosing where to look. It renders nothing most of
                 the time. */}
-            {!unsupported && (
+            {!unsupported && !aiView && (
               <ErrorBoundary key={`digest:${active.id}`} label={t('변경 요약')}>
                 <DigestStrip hostID={active.id} />
               </ErrorBoundary>
@@ -524,16 +681,16 @@ export default function App() {
                 Keyed by host as well as tab: a crash in one view leaves the
                 others usable, and switching hosts starts every view clean. */}
             {openedTabs.map((id) => (
-              <div className="tab-pane" key={`${active.id}:${id}`} hidden={id !== tab}>
+              <div className="tab-pane" key={`${active.id}:${id}`} hidden={id !== tab || aiView}>
                 <ErrorBoundary label={TABS.find((x) => x.id === id)?.label ?? id}>
-                  {renderTab(id, active.id, activeInfo, setError, () => setTab('files'), id === tab)}
+                  {renderTab(id, active.id, activeInfo, setError, () => setTab('files'), id === tab && !aiView)}
                 </ErrorBoundary>
               </div>
             ))}
           </>
         )}
 
-        {active && !connected && (
+        {active && !connected && !aiView && (
           <div className="placeholder">
             {active.state === 'connecting'
               ? t('연결하는 중…')
@@ -693,7 +850,11 @@ function renderTab(
           <Unavailable
             title={t('이 서버에는 컨테이너 런타임이 없습니다')}
             detail={t('docker와 podman 둘 다 PATH에서 찾지 못했습니다.')}
-            hint={t('설치되어 있는데도 이렇게 나온다면, 로그인 셸의 PATH에 없을 수 있습니다 — 터미널 탭에서 `command -v docker`로 확인해보세요.')}
+            hint={
+              info.platform === 'windows'
+                ? t('설치되어 있는데도 이렇게 나온다면, 로그인 셸의 PATH에 없을 수 있습니다 — 터미널 탭에서 `where docker`로 확인해보세요.')
+                : t('설치되어 있는데도 이렇게 나온다면, 로그인 셸의 PATH에 없을 수 있습니다 — 터미널 탭에서 `command -v docker`로 확인해보세요.')
+            }
           />
         )
       }
@@ -776,6 +937,7 @@ function renderTab(
             visible={visible}
             onError={onError}
             onReveal={onReveal}
+            windows={info.platform === 'windows'}
           />
         </Suspense>
       )

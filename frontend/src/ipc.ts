@@ -74,6 +74,9 @@ export interface MCPWritePrompt {
   path?: string
   before?: string
   after?: string
+  /** Set when the tool is switched off for this host and the dialog is asking
+   *  whether to allow it at all: 'delete' or 'exec'. */
+  grant?: 'delete' | 'exec'
 }
 
 export interface WritePolicyView {
@@ -142,7 +145,86 @@ export interface MCPStatus {
    *  name rather than a header, so it is two lines and not an edit of the one
    *  above. */
   codexSnippet?: string
+  /** Extra named tokens, one per AI client. The token above is the default. */
+  clients: MCPClientView[]
+  /** How long undo copies are kept, and how much room they may take. */
+  keepDays: number
+  keepMB: number
   error?: string
+}
+
+export interface MCPClientView {
+  id: string
+  label: string
+  token: string
+  created?: number
+  snippet?: string
+  codexSnippet?: string
+}
+
+/** One thing an AI did through LiteDeck. Times are unix milliseconds. */
+export interface AIRecord {
+  id: string
+  at: number
+  ended?: number
+  hostId?: string
+  /** The token's ID — 'default' for the original one. */
+  client?: string
+  /** The client's name when this happened; empty for the default client. */
+  clientLabel?: string
+  session?: string
+  tool: string
+  kind: AIKind
+  target?: string
+  action?: string
+  result: 'running' | 'ok' | 'failed' | 'declined'
+  approval?: string
+  exit?: number
+  error?: string
+  command?: string
+  output?: string
+  snapshot?: string
+  changed?: boolean
+  created?: boolean
+  afterHash?: string
+  restores?: string
+}
+
+export type AIKind =
+  | 'read'
+  | 'file_write'
+  | 'file_delete'
+  | 'service'
+  | 'process'
+  | 'container'
+  | 'command'
+  | 'restore'
+
+export type AIChangeState =
+  | 'revertible'
+  | 'changed'
+  | 'expired'
+  | 'restored'
+  | 'nocopy'
+  | 'offline'
+  | 'irreversible'
+  | 'notapplied'
+
+export interface AIChangeView {
+  state: AIChangeState
+  path?: string
+  before?: string
+  after?: string
+  hasDiff: boolean
+  created?: boolean
+  deleted?: boolean
+  error?: string
+}
+
+export interface AIRevertReport {
+  reverted: string[]
+  skipped: { path: string; hostId: string; reason: string; error?: string }[]
+  irreversible: number
 }
 
 export interface ServerInfo {
@@ -1054,6 +1136,8 @@ export interface CommandEntry {
   queuedMs?: number
   /** How many times this background read has run. Absent for user actions. */
   repeat?: number
+  /** The AI work record, on rows an MCP client produced. */
+  ai?: AIRecord
 }
 
 export interface ConnectionState {
@@ -1135,6 +1219,14 @@ interface Bindings {
   RestoreMCPChange(id: string): Promise<ActionResult>
   SetMCPHostDelete(hostID: string, allowed: boolean): Promise<MCPStatus>
   SetMCPHostExec(hostID: string, allowed: boolean): Promise<MCPStatus>
+  AddMCPClient(label: string): Promise<MCPStatus>
+  RemoveMCPClient(id: string): Promise<MCPStatus>
+  RenameMCPClient(id: string, label: string): Promise<MCPStatus>
+  SetMCPRetention(days: number, mb: number): Promise<MCPStatus>
+  AIRecords(): Promise<AIRecord[]>
+  AIChange(id: string): Promise<AIChangeView>
+  AIRevert(id: string, force: boolean): Promise<ActionResult>
+  AIRevertSession(session: string): Promise<AIRevertReport>
 
   SyncExportFile(passphrase: string): Promise<SyncExportResult>
   SyncPickFile(): Promise<string>
@@ -1235,7 +1327,7 @@ interface Bindings {
 
   OpenTerminal(id: string, opts: TerminalOptions): Promise<TerminalInfo>
   ListTerminals(id: string): Promise<TerminalInfo[]>
-  RevealFromTerminal(termId: string, arg: string): Promise<RevealRequest>
+  RevealFromTerminal(termId: string, arg: string, clear: string): Promise<RevealRequest>
   WriteTerminal(termId: string, data: string): Promise<void>
   ResizeTerminal(termId: string, cols: number, rows: number): Promise<void>
   CloseTerminal(termId: string): Promise<void>
@@ -1401,6 +1493,14 @@ export const SetMCPHostDelete = (hostID: string, allowed: boolean) =>
   api().SetMCPHostDelete(hostID, allowed)
 export const SetMCPHostExec = (hostID: string, allowed: boolean) =>
   api().SetMCPHostExec(hostID, allowed)
+export const AddMCPClient = (label: string) => api().AddMCPClient(label)
+export const RemoveMCPClient = (id: string) => api().RemoveMCPClient(id)
+export const RenameMCPClient = (id: string, label: string) => api().RenameMCPClient(id, label)
+export const SetMCPRetention = (days: number, mb: number) => api().SetMCPRetention(days, mb)
+export const AIRecords = () => api().AIRecords()
+export const AIChange = (id: string) => api().AIChange(id)
+export const AIRevert = (id: string, force: boolean) => api().AIRevert(id, force)
+export const AIRevertSession = (session: string) => api().AIRevertSession(session)
 export const SetLanguage = (tag: string) => api().SetLanguage(tag)
 export const SetTheme = (theme: string) => api().SetTheme(theme)
 export const SaveHost = (h: Host) => api().SaveHost(h)
@@ -1506,8 +1606,8 @@ export const ListTimers = (id: string) => api().ListTimers(id)
 export const OpenTerminal = (id: string, opts: TerminalOptions) =>
   api().OpenTerminal(id, opts)
 export const ListTerminals = (id: string) => api().ListTerminals(id)
-export const RevealFromTerminal = (termId: string, arg: string) =>
-  api().RevealFromTerminal(termId, arg)
+export const RevealFromTerminal = (termId: string, arg: string, clear = '') =>
+  api().RevealFromTerminal(termId, arg, clear)
 export const WriteTerminal = (termId: string, data: string) =>
   api().WriteTerminal(termId, data)
 export const ResizeTerminal = (termId: string, cols: number, rows: number) =>

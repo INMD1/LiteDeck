@@ -27,11 +27,34 @@ export interface Prefs {
    *  whole window — which is the only thing somebody reading code on a server
    *  wants from this app's chrome. */
   railOpen: boolean
+
+  // The terminal (§5.3 of the next spec). Local for the same reason as the rest:
+  // a font that suits one screen is wrong on the next.
+
+  /** Terminal font size in px. */
+  termFontSize: number
+  /** Line height as a percentage — 100 is the font's own. A whole number
+   *  because every numeric preference here is one, and 1.15 rounds badly. */
+  termLineHeight: number
+  /** Font family. Empty means the app's monospace stack. */
+  termFontFamily: string
+  /** Programming ligatures (`->` drawn as an arrow) where the font has them. */
+  termLigatures: boolean
+  /** Copy a selection as soon as it is made, the way X11 terminals do. */
+  termCopyOnSelect: boolean
+  /** Colour scheme; see termThemes.ts. */
+  termTheme: string
+  /** Width of the detail panel on the AI work screen, in px. A diff wants
+   *  room; a long session wants the graph to have it instead. */
+  aiDetailWidth: number
 }
 
 /** The preferences that are a size. The rest are switches, and clamping a
  *  switch between two numbers is not a thing. */
 export type NumericPref = { [K in keyof Prefs]: Prefs[K] extends number ? K : never }[keyof Prefs]
+
+/** The ones that are text — a font name, a theme id. */
+export type StringPref = { [K in keyof Prefs]: Prefs[K] extends string ? K : never }[keyof Prefs]
 
 export const DEFAULTS: Prefs = {
   commandLogHeight: 200,
@@ -40,6 +63,13 @@ export const DEFAULTS: Prefs = {
   historyWidth: 320,
   sidebarOpen: true,
   railOpen: true,
+  termFontSize: 13,
+  termLineHeight: 100,
+  termFontFamily: '',
+  termLigatures: false,
+  termCopyOnSelect: false,
+  termTheme: 'app',
+  aiDetailWidth: 400,
 }
 
 const LIMITS: Record<NumericPref, [number, number]> = {
@@ -49,6 +79,9 @@ const LIMITS: Record<NumericPref, [number, number]> = {
   // Wide enough for a docker command without wrapping; capped so the terminal
   // stays the thing on this tab.
   historyWidth: [220, 720],
+  termFontSize: [9, 28],
+  termLineHeight: [100, 160],
+  aiDetailWidth: [280, 960],
 }
 
 function clamp<K extends keyof Prefs>(key: K, value: unknown): Prefs[K] {
@@ -56,6 +89,11 @@ function clamp<K extends keyof Prefs>(key: K, value: unknown): Prefs[K] {
   if (typeof fallback === 'boolean') {
     // A stored non-boolean is a corrupted entry, not a truthiness question.
     return (typeof value === 'boolean' ? value : fallback) as Prefs[K]
+  }
+  if (typeof fallback === 'string') {
+    // Bounded, because it ends up in a CSS font-family and a hand-edited store
+    // should not be able to put a kilobyte there.
+    return (typeof value === 'string' ? value.slice(0, 120) : fallback) as Prefs[K]
   }
   const [lo, hi] = LIMITS[key as NumericPref]
   const n = typeof value === 'number' && Number.isFinite(value) ? value : (fallback as number)

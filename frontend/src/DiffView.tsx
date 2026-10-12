@@ -20,10 +20,14 @@ export function DiffView({
   path,
   before,
   after,
+  past,
 }: {
   path: string
   before: string
   after: string
+  /** A change that already happened (the AI work graph), not one about to be
+   *  saved — the caption says which side is which in those terms. */
+  past?: boolean
 }) {
   const host = useRef<HTMLDivElement>(null)
   const [changes, setChanges] = useState<number | null>(null)
@@ -78,7 +82,9 @@ export function DiffView({
           ? t('바뀐 내용이 없습니다.')
           : changes === null
             ? ''
-            : t('{n}곳이 바뀝니다 — 왼쪽이 서버, 오른쪽이 저장할 내용입니다.', { n: changes })}
+            : past
+              ? t('{n}곳이 바뀌었습니다 — 왼쪽이 이전, 오른쪽이 AI가 쓴 내용입니다.', { n: changes })
+              : t('{n}곳이 바뀝니다 — 왼쪽이 서버, 오른쪽이 저장할 내용입니다.', { n: changes })}
       </div>
       <div className="diff-host" ref={host} />
     </>

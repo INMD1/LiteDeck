@@ -404,7 +404,7 @@ export function ContainerView({
                       {t('로그')}
                     </button>
                     <span className="spacer" />
-                    <button className="danger" disabled={busy} onClick={() => setConfirmRemove(c)}>
+                    <button className="danger-outline" disabled={busy} onClick={() => setConfirmRemove(c)}>
                       {t('삭제')}
                     </button>
                   </div>

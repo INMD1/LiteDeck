@@ -9,6 +9,8 @@ import {
   type MCPWritePrompt,
   type SecretPrompt,
   SetMCPWritePolicy,
+  SetMCPHostDelete,
+  SetMCPHostExec,
 } from './ipc'
 import { t } from './i18n'
 
@@ -205,6 +207,8 @@ export function McpWriteDialog({
     answer(true)
   }
 
+  if (prompt.grant) return <McpGrantDialog prompt={prompt} answer={answer} denyRef={deny} />
+
   const isFileWrite = prompt.after !== undefined && prompt.path
   // A command follows the same modes as everything else here — the switch that
   // decides whether it is offered at all is elsewhere. What changes is the line
@@ -275,6 +279,80 @@ export function McpWriteDialog({
           {isExec
             ? t('묻지 않기는 이 호스트에만 적용되고 시간이 지나면 스스로 돌아옵니다. 다만 명령 실행은 되돌릴 수 없습니다 — 이 서버에서 아예 끄는 것은 MCP 패널에서 합니다.')
             : t('묻지 않기는 이 호스트에만 적용되고 시간이 지나면 스스로 돌아옵니다. 파일 변경은 MCP 패널의 변경된 파일 탭에서 되돌릴 수 있습니다.')}
+        </p>
+      </div>
+    </Scrim>
+  )
+}
+
+/**
+ * The question for a tool switched off on this host (askGrant in Go).
+ *
+ * Deleting files and running commands are off per server until somebody turns
+ * them on, and that used to surface as a refusal in the agent's transcript —
+ * the person found out only by asking why. This brings the question to them at
+ * the moment it matters, with the file or the command in view, and lets them
+ * answer it there: no, this once, or from now on for this server.
+ */
+function McpGrantDialog({
+  prompt,
+  answer,
+  denyRef,
+}: {
+  prompt: MCPWritePrompt
+  answer: (approved: boolean) => void
+  denyRef: React.RefObject<HTMLButtonElement | null>
+}) {
+  const del = prompt.grant === 'delete'
+  const always = () => {
+    const turnOn = del ? SetMCPHostDelete : SetMCPHostExec
+    void turnOn(prompt.hostId, true).catch(() => {})
+    answer(true)
+  }
+  return (
+    <Scrim clickAway={false} onClose={() => answer(false)}>
+      <div className="dialog mcp-approve">
+        <h2>{del ? t('AI가 이 서버에서 파일을 지우려 합니다') : t('AI가 이 서버에서 명령을 실행하려 합니다')}</h2>
+        <p className="muted">{prompt.host}</p>
+        <p className="warn-text">
+          {del
+            ? t('이 서버는 AI의 파일 삭제가 꺼져 있습니다(기본값). 허용할까요?')
+            : t('이 서버는 AI의 명령 실행이 꺼져 있습니다(기본값). 허용할까요?')}
+        </p>
+
+        {del && prompt.path ? (
+          <>
+            {/* The file as it stands, not a diff: the save dialog's diff
+                captions its sides "server" and "to be saved", which is the
+                wrong story for a file about to go. */}
+            <label className="muted small">{t('지울 파일 — {path}', { path: prompt.path })}</label>
+            <pre className="mono mcp-grant-file selectable">{prompt.before ?? ''}</pre>
+          </>
+        ) : (
+          prompt.command && (
+            <>
+              <label className="muted small">{t('실행될 명령')}</label>
+              <code className="mono mcp-command selectable">{prompt.command}</code>
+            </>
+          )
+        )}
+
+        <div className="dialog-actions mcp-approve-actions">
+          <button ref={denyRef} onClick={() => answer(false)}>
+            {t('거부')}
+          </button>
+          <span className="spacer" />
+          <button className="ghost" onClick={always}>
+            {t('이 서버에서 계속 허용')}
+          </button>
+          <button className="danger" onClick={() => answer(true)}>
+            {t('이번만 허용')}
+          </button>
+        </div>
+        <p className="muted small">
+          {del
+            ? t('지우기 전의 내용은 이 컴퓨터에 보관되어 AI 작업 화면에서 되돌릴 수 있습니다. 「계속 허용」은 MCP 연동 › 권한에서 다시 끌 수 있습니다.')
+            : t('명령의 효과는 되돌릴 수 없습니다. 「계속 허용」은 MCP 연동 › 권한에서 다시 끌 수 있고, 켜 둔 뒤에도 실행 전에 묻는지는 변경 승인 모드를 따릅니다.')}
         </p>
       </div>
     </Scrim>
