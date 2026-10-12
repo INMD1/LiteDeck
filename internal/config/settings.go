@@ -104,6 +104,24 @@ type MCPSettings struct {
 	// through — a command leaves no copy to put back, so the approval mode does
 	// not apply to it.
 	Exec map[string]bool `json:"exec,omitempty"`
+	// Clients are tokens beyond Token, each named for the AI client that holds
+	// it ("Claude Code - MacBook"). The name is for the record — which client
+	// did this — and grants nothing: every token reaches exactly what Token
+	// does. Token itself stays as it was and is shown as the default client, so
+	// a setup from before this existed keeps working untouched.
+	Clients []MCPClient `json:"clients,omitempty"`
+	// KeepDays is how long the copies behind "undo" are kept, and KeepMB how
+	// much room they may take. Zero means the default (7 days, 256 MB).
+	KeepDays int `json:"keepDays,omitempty"`
+	KeepMB   int `json:"keepMB,omitempty"`
+}
+
+// MCPClient is one extra token and the name it goes by.
+type MCPClient struct {
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	Token   string `json:"token"`
+	Created int64  `json:"created,omitempty"`
 }
 
 // MCPWritePolicy is how one host handles a write an AI asks for (§4.2).

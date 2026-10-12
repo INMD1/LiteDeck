@@ -76,7 +76,12 @@ type MCPStatus struct {
 	// *name* of an environment variable rather than as a header, so it is two
 	// lines rather than one and cannot be produced by editing the first.
 	CodexSnippet string `json:"codexSnippet,omitempty"`
-	Error        string `json:"error,omitempty"`
+	// Clients are the extra named tokens. The one above is the default client.
+	Clients []MCPClientView `json:"clients"`
+	// KeepDays and KeepMB are the undo copies' retention, as in force.
+	KeepDays int    `json:"keepDays"`
+	KeepMB   int    `json:"keepMB"`
+	Error    string `json:"error,omitempty"`
 }
 
 // WritePolicyView is one host's approval mode, as the settings screen sees it.
@@ -130,10 +135,12 @@ func (a *App) startMCP() {
 	}
 
 	opts := mcp.Options{
-		Token:   token,
-		Port:    wanted,
-		Limiter: mcp.NewLimiter(mcpCallsPerSecond, mcpBurst),
-		OnCall:  a.logAICall,
+		// Read on every request rather than captured here, so a client added
+		// or removed in the panel takes effect without dropping the others.
+		Authorise: a.mcpAuthorise,
+		Port:      wanted,
+		Limiter:   mcp.NewLimiter(mcpCallsPerSecond, mcpBurst),
+		Around:    a.aroundAICall,
 	}
 
 	listener, url, err := srv.Serve(opts)
@@ -192,6 +199,18 @@ func (a *App) stopMCP() {
 // threading a caller identity through every binding, which buys a label and
 // costs a signature change in twenty files.
 func (a *App) logAICall(tool string, args map[string]any) {
+	hostID, _ := args["hostId"].(string)
+	a.log.AICall(hostID, aiCallLine(tool, args))
+}
+
+// logAICallRecord is logAICall with the record attached, for the work graph.
+func (a *App) logAICallRecord(tool string, args map[string]any, rec AIRecord) int {
+	hostID, _ := args["hostId"].(string)
+	return a.log.aiCall(hostID, aiCallLine(tool, args), &rec)
+}
+
+// aiCallLine is the row's text: the tool and its arguments, each clipped.
+func aiCallLine(tool string, args map[string]any) string {
 	keys := make([]string, 0, len(args))
 	for k := range args {
 		keys = append(keys, k)
@@ -208,9 +227,7 @@ func (a *App) logAICall(tool string, args map[string]any) {
 		fmt.Fprintf(&b, "%s=%s", k, clipArg(fmt.Sprintf("%v", args[k])))
 	}
 	b.WriteString(")")
-
-	hostID, _ := args["hostId"].(string)
-	a.log.AICall(hostID, b.String())
+	return b.String()
 }
 
 // maxAIArgChars bounds one argument in the logged line.
@@ -281,7 +298,8 @@ func codexSnippet(token, url, goos string) string {
 
 // MCPState reports the integration's current state.
 func (a *App) MCPState() MCPStatus {
-	out := MCPStatus{Hosts: map[string]bool{}}
+	out := MCPStatus{Hosts: map[string]bool{}, Clients: []MCPClientView{},
+		KeepDays: defaultKeepDays, KeepMB: defaultKeepMB}
 	if a.settings == nil {
 		return out
 	}
@@ -320,11 +338,11 @@ func (a *App) MCPState() MCPStatus {
 	if out.Running {
 		// The exact line to paste. A user who has to assemble this from three
 		// fields gets it wrong once and concludes the feature is broken.
-		out.Snippet = fmt.Sprintf(
-			"claude mcp add --transport http litedeck %s --header \"Authorization: Bearer %s\"",
-			out.URL, out.Token)
+		out.Snippet = claudeSnippet(out.Token, out.URL)
 		out.CodexSnippet = codexSnippet(out.Token, out.URL, runtime.GOOS)
 	}
+	out.Clients = a.mcpClientViews(s, out.URL)
+	out.KeepDays, out.KeepMB = keepDays(s), keepMB(s)
 	return out
 }
 

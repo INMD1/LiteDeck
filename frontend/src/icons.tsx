@@ -49,6 +49,7 @@ export type IconName =
   | 'server'
   | 'lock'
   | 'unlock'
+  | 'ai'
 
 export function Icon({ name }: { name: IconName }) {
   switch (name) {
@@ -136,6 +137,16 @@ export function Icon({ name }: { name: IconName }) {
         <svg {...box}>
           <rect x="3.25" y="7" width="9.5" height="7" rx="1.5" />
           <path d="M5.5 7V5.25a2.5 2.5 0 0 1 4.9-.65" />
+        </svg>
+      )
+    case 'ai':
+      // Three steps and the lines between them — the work graph, not a robot.
+      return (
+        <svg {...box}>
+          <circle cx="3.5" cy="4" r="1.75" />
+          <circle cx="12.5" cy="4" r="1.75" />
+          <circle cx="8" cy="12" r="1.75" />
+          <path d="M5.25 4h5.5M4.4 5.5l2.7 5M11.6 5.5l-2.7 5" />
         </svg>
       )
     case 'server':

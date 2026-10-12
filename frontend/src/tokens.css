@@ -81,6 +81,37 @@
   --p-red-900: #38201f;
   --p-red-800: #68302e;
 
+  --p-violet-600: #6b3fc7;
+  --p-violet-100: #f2edfc;
+  --p-violet-200: #d6c6f3;
+
+  /* The dark theme's own ramp: blue-black rather than grey, so the neons read
+     as light on a night sky instead of as colour on concrete. */
+  --p-ink-950: #06070c;
+  --p-ink-900: #0a0c14;
+  --p-ink-850: #11141f;
+  --p-ink-800: #181c2b;
+  --p-ink-700: #252b40;
+
+  /* Neons. Kept to state, selection, emphasis and the graph — never to body
+     text or tables, which are read for minutes at a time (§6.1). Each has a
+     deep tint and a border for the badge that carries it. */
+  --p-neon-cyan: #2fe4ff;
+  --p-neon-cyan-900: #062a33;
+  --p-neon-cyan-800: #0d4f5c;
+  --p-neon-magenta: #ff5ad9;
+  --p-neon-magenta-900: #2e0f2a;
+  --p-neon-magenta-800: #5e1d55;
+  --p-neon-green: #3dffa0;
+  --p-neon-green-900: #062b1c;
+  --p-neon-green-800: #0e5a3b;
+  --p-neon-yellow: #ffd166;
+  --p-neon-yellow-900: #2b2208;
+  --p-neon-yellow-800: #5c4612;
+  --p-neon-pink: #ff5c8a;
+  --p-neon-pink-900: #33101d;
+  --p-neon-pink-800: #6d2039;
+
   /* ── 2. Semantic — type ──────────────────────────────────────────────
      The system stack is the cheapest way to look like it belongs on the
      platform — SF on macOS, Segoe on Windows, the desktop default on Linux. */
@@ -128,6 +159,8 @@
   --fg-muted: var(--p-n600);
   --fg-faint: var(--p-n500);
   --fg-on-accent: var(--p-n0);
+  /* Text on a solid danger fill — a destructive button. */
+  --fg-on-danger: var(--p-n0);
 
   --accent: var(--p-blue-600);
   --accent-bg: var(--p-blue-100);
@@ -144,6 +177,24 @@
   --danger: var(--p-red-600);
   --danger-bg: var(--p-red-100);
   --danger-border: var(--p-red-200);
+
+  /* A second accent, for what an AI client did — its rows in the Command Log
+     and the AI work graph — so it is told apart from the user's own selection
+     at a glance. */
+  --accent-2: var(--p-violet-600);
+  --accent-2-bg: var(--p-violet-100);
+  --accent-2-border: var(--p-violet-200);
+
+  /* Glow: how the dark theme marks the one thing that is active. The calm
+     theme has none — the ring and the colour carry it. */
+  --glow-accent: none;
+  --glow-accent-2: none;
+  --glow-ok: none;
+
+  /* Labels — section titles in the rail, panel headings. The neon theme sets
+     them in the monospace face; the calm one keeps the system face. */
+  --font-label: var(--font-ui);
+  --label-tracking: 0.04em;
 
   /* Depth. Three steps, because a fourth is never the reason a screen reads
      badly. Shadows carry no colour of their own — a tinted shadow on a neutral
@@ -214,60 +265,79 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: var(--p-n900);
-  --bg-sunken: var(--p-n950);
-  --bg-raised: var(--p-n850);
-  --bg-hover: #ffffff0d;
-  --bg-selected: #4da3ff26;
-  --bg-overlay: #00000073;
+  --bg: var(--p-ink-900);
+  --bg-sunken: var(--p-ink-950);
+  --bg-raised: var(--p-ink-850);
+  --bg-hover: #7fe7ff0f;
+  --bg-selected: #2fe4ff1f;
+  --bg-overlay: #000000a6;
 
-  --border: #ffffff14;
-  --border-strong: #ffffff2e;
+  /* Borders lean cyan: a line on this ground should look lit, not drawn. */
+  --border: #8fe9ff17;
+  --border-strong: #8fe9ff33;
 
-  --fg: #f5f5f7;
-  --fg-muted: #9d9da5;
-  --fg-faint: #8b8b94;
-  --fg-on-accent: var(--p-n950);
+  --fg: #e8ebf5;
+  --fg-muted: #a6acc2;
+  --fg-faint: #8d93ab;
+  --fg-on-accent: var(--p-ink-950);
+  /* Neon fills are light: the text on them is dark, never white. */
+  --fg-on-danger: var(--p-ink-950);
 
-  --accent: var(--p-blue-400);
-  --accent-bg: var(--p-blue-900);
-  --accent-border: var(--p-blue-800);
+  --accent: var(--p-neon-cyan);
+  --accent-bg: var(--p-neon-cyan-900);
+  --accent-border: var(--p-neon-cyan-800);
 
-  --ok: var(--p-green-400);
-  --ok-bg: var(--p-green-900);
-  --ok-border: var(--p-green-800);
+  --accent-2: var(--p-neon-magenta);
+  --accent-2-bg: var(--p-neon-magenta-900);
+  --accent-2-border: var(--p-neon-magenta-800);
 
-  --warn: var(--p-amber-400);
-  --warn-bg: var(--p-amber-900);
-  --warn-border: var(--p-amber-800);
+  --ok: var(--p-neon-green);
+  --ok-bg: var(--p-neon-green-900);
+  --ok-border: var(--p-neon-green-800);
 
-  --danger: var(--p-red-400);
-  --danger-bg: var(--p-red-900);
-  --danger-border: var(--p-red-800);
+  --warn: var(--p-neon-yellow);
+  --warn-bg: var(--p-neon-yellow-900);
+  --warn-border: var(--p-neon-yellow-800);
+
+  --danger: var(--p-neon-pink);
+  --danger-bg: var(--p-neon-pink-900);
+  --danger-border: var(--p-neon-pink-800);
+
+  /* The glow is the neon. One element at a time wears it — the active tab, the
+     selected node, the focused pane — and nothing else, or nothing glows. */
+  --glow-accent: 0 0 0 1px var(--p-neon-cyan-800), 0 0 14px #2fe4ff40;
+  --glow-accent-2: 0 0 0 1px var(--p-neon-magenta-800), 0 0 14px #ff5ad940;
+  /* A connected host's dot. Small enough that a list of them stays a list. */
+  --glow-ok: 0 0 6px #3dffa080;
+
+  --font-label: var(--font-mono);
+  --label-tracking: 0.08em;
 
   /* Dark surfaces do not take shadow the way light ones do — the contrast is
      not there. Depth is carried by --bg-raised instead, and the shadows stay
      only to seat floating things against the window. */
-  --shadow-1: 0 1px 2px #00000052;
-  --shadow-2: 0 4px 12px #0000005c;
-  --shadow-3: 0 12px 32px #00000080;
+  --shadow-1: 0 1px 2px #00000066;
+  --shadow-2: 0 4px 12px #00000080;
+  --shadow-3: 0 12px 32px #000000a6, 0 0 0 1px #8fe9ff14;
 
-  --syn-comment: #9aa4ae;
-  --syn-keyword: #ff8b83;
-  --syn-string: #a5d6ff;
-  --syn-number: #79c0ff;
-  --syn-function: #d2a8ff;
-  --syn-def: #d2a8ff;
-  --syn-type: #ffa657;
-  --syn-property: #79c0ff;
-  --syn-variable: #f5f5f7;
-  --syn-operator: #79c0ff;
-  --syn-punct: #9d9da5;
-  --syn-meta: #7ee787;
-  --syn-heading: #79c0ff;
-  --syn-link: var(--p-blue-300);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
-  --tree-guide: #ffffff1f;
+  --syn-comment: #8d93ab;
+  --syn-keyword: #ff6fb5;
+  --syn-string: #8ff7c4;
+  --syn-number: #ffd166;
+  --syn-function: #6ceaff;
+  --syn-def: #6ceaff;
+  --syn-type: #c79bff;
+  --syn-property: #9ad8ff;
+  --syn-variable: #e8ebf5;
+  --syn-operator: #6ceaff;
+  --syn-punct: #a6acc2;
+  --syn-meta: #3dffa0;
+  --syn-heading: #2fe4ff;
+  --syn-link: var(--p-neon-cyan);
+
+  --tree-guide: #8fe9ff1f;
 }
 
 * {

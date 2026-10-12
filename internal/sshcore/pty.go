@@ -41,6 +41,12 @@ type PTYOptions struct {
 	// the only question this package ever asks a live terminal (§4.6a).
 	Windows bool
 
+	// ShellKind says which shell Line starts on a Windows host — "cmd",
+	// "powershell", or "posix" for a WSL distribution — because the question
+	// CurrentDir asks has to be spelled in that shell's language. Empty is
+	// cmd on Windows and POSIX everywhere else.
+	ShellKind string
+
 	// Line is a ready-made command line to start instead of the login shell.
 	//
 	// Windows only, and deliberately a string rather than argv: the quoting
@@ -56,6 +62,8 @@ type PTYSession struct {
 	stdin   io.WriteCloser
 	release func() // returns the long-lived channel slot
 	windows bool
+	// shellKind is PTYOptions.ShellKind.
+	shellKind string
 	// done is closed when the remote command has ended. Close waits on it
 	// briefly so the shell gets to leave on its own — see Close.
 	done chan struct{}
@@ -147,7 +155,8 @@ func (c *Conn) OpenPTY(
 	// With a PTY the server merges stderr into stdout, so only one reader is
 	// needed; asking for a separate stderr pipe would just sit idle.
 
-	p := &PTYSession{sess: sess, stdin: stdin, release: release, windows: opts.Windows, done: make(chan struct{})}
+	p := &PTYSession{sess: sess, stdin: stdin, release: release, windows: opts.Windows,
+		shellKind: opts.ShellKind, done: make(chan struct{})}
 
 	startErr := p.start(opts)
 	if startErr != nil {
@@ -159,10 +168,16 @@ func (c *Conn) OpenPTY(
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := stdout.Read(buf)
-			if n > 0 && !p.absorb(buf[:n]) {
-				chunk := make([]byte, n)
-				copy(chunk, buf[:n])
-				onOutput(chunk)
+			if n > 0 {
+				show, taken := p.absorb(buf[:n])
+				if !taken {
+					show = buf[:n]
+				}
+				if len(show) > 0 {
+					chunk := make([]byte, len(show))
+					copy(chunk, show)
+					onOutput(chunk)
+				}
 			}
 			if err != nil {
 				break
@@ -254,10 +269,20 @@ const probeTimeout = 3 * time.Second
 // from the moment it is asked until the reply arrives. What the user sees is
 // their prompt, then their prompt again.
 func (p *PTYSession) CurrentDir(ctx context.Context) (string, error) {
-	spec := posixCWD
-	if p.windows {
-		spec = cmdCWD
-	}
+	return p.CurrentDirAfter(ctx, nil)
+}
+
+// CurrentDirAfter is CurrentDir with something sent to the shell first —
+// whatever clears the line the app just took from the user (`vi note.txt`).
+//
+// One write, with the screen already diverted, is the point. Sent separately,
+// the clear and the question raced over the network: on a server with any
+// latency the shell's redraw of the cleared line came back after the
+// diversion had started and was swallowed, so the screen kept showing
+// `vi note.txt` while the shell had nothing on its line; and when the clear
+// lost the race the other way, the question itself was printed on screen.
+func (p *PTYSession) CurrentDirAfter(ctx context.Context, clear []byte) (string, error) {
+	spec := probeFor(p.windows, p.shellKind)
 
 	pending := &pendingProbe{done: make(chan string, 1), spec: spec}
 
@@ -283,7 +308,7 @@ func (p *PTYSession) CurrentDir(ctx context.Context) (string, error) {
 	// cmd.exe submits on nothing else — given \n it appends the next thing sent to
 	// the same line and runs them together. A POSIX pty maps \r to \n on input, so
 	// this is what both shells accept.
-	if _, err := p.stdin.Write([]byte(spec.command + "\r")); err != nil {
+	if _, err := p.stdin.Write(append(append([]byte(nil), clear...), []byte(spec.command+"\r")...)); err != nil {
 		stop()
 		return "", fmt.Errorf("sshcore: ask terminal for its directory: %w", err)
 	}
@@ -307,17 +332,21 @@ func (p *PTYSession) CurrentDir(ctx context.Context) (string, error) {
 
 // absorb diverts output while a question is in flight.
 //
-// Reports whether the chunk was taken, in which case it must not be displayed:
-// the echoed question and its answer are both noise the user did not ask for.
-func (p *PTYSession) absorb(chunk []byte) bool {
+// Reports whether the chunk was taken, and what of it still belongs on the
+// screen: the echoed question and its answer are noise the user did not ask
+// for, but the shell's next prompt — which often arrives in the same read as
+// the answer — is not. Swallowing it with the answer left the cursor sitting
+// at the end of the old line with no prompt in sight.
+func (p *PTYSession) absorb(chunk []byte) (show []byte, taken bool) {
 	p.mu.Lock()
 	pending := p.probe
 	if pending == nil {
 		p.mu.Unlock()
-		return false
+		return nil, false
 	}
+	start := pending.seen.Len()
 	pending.seen.Write(chunk)
-	dir := parseCWD(pending.seen.Bytes(), pending.spec)
+	dir, end := parseCWDAt(pending.seen.Bytes(), pending.spec)
 	// Keep swallowing until the answer is complete; a reply split across reads
 	// would otherwise be half-shown and half-parsed.
 	if dir == "" {
@@ -327,15 +356,18 @@ func (p *PTYSession) absorb(chunk []byte) bool {
 			p.probe = nil
 			p.mu.Unlock()
 			pending.done <- ""
-			return false
+			return nil, false
 		}
 		p.mu.Unlock()
-		return true
+		return nil, true
 	}
 	p.probe = nil
 	p.mu.Unlock()
 	pending.done <- dir
-	return true
+	if end > start {
+		return chunk[end-start:], true
+	}
+	return chunk, true
 }
 
 // Write sends user keystrokes to the remote terminal.

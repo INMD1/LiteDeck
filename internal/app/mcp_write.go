@@ -101,7 +101,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				"description": "reload is not offered here; use restart.",
 			},
 		}, "hostId", "unit", "action"),
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			id, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
@@ -111,6 +111,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				return nil, fmt.Errorf("unit and action (start, stop or restart) are required")
 			}
 			out, err := a.approveWrite(writeRequest{
+				ctx:     ctx,
 				hostID:  id,
 				tool:    "svc_control",
 				summary: fmt.Sprintf("%s %s", action, unit),
@@ -142,7 +143,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				"type": "string", "enum": []string{"start", "stop", "restart"},
 			},
 		}, "hostId", "id", "action"),
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hostID, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
@@ -152,6 +153,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				return nil, fmt.Errorf("id and action (start, stop or restart) are required")
 			}
 			out, err := a.approveWrite(writeRequest{
+				ctx:     ctx,
 				hostID:  hostID,
 				tool:    "container_control",
 				summary: fmt.Sprintf("%s container %s", action, id),
@@ -179,7 +181,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				"description": "Defaults to TERM.",
 			},
 		}, "hostId", "pid"),
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hostID, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
@@ -197,6 +199,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				return nil, fmt.Errorf("signal must be TERM or KILL")
 			}
 			out, err := a.approveWrite(writeRequest{
+				ctx:     ctx,
 				hostID:  hostID,
 				tool:    "proc_signal",
 				summary: fmt.Sprintf("send %s to PID %d", signal, pid),
@@ -218,15 +221,15 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			"succeeded, but it was not crash-safe, and the user should be told.",
 		InputSchema: obj(map[string]any{
 			"hostId":  hostArg,
-			"path":    map[string]any{"type": "string", "description": "Absolute path."},
+			"path":    map[string]any{"type": "string", "description": "Absolute path. On Windows C:\\Users\\me\\a.txt works."},
 			"content": map[string]any{"type": "string", "description": "The complete new contents."},
 		}, "hostId", "path", "content"),
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hostID, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
 			}
-			path := str(args, "path")
+			path := a.mcpPath(hostID, args)
 			content, ok := args["content"].(string)
 			if path == "" || !ok {
 				return nil, fmt.Errorf("path and content are required")
@@ -268,6 +271,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			}
 
 			out, err := a.approveWrite(writeRequest{
+				ctx:     ctx,
 				hostID:  hostID,
 				tool:    "fs_write",
 				summary: fmt.Sprintf("write %s", path),
@@ -280,12 +284,16 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			}
 			// Recorded before the write, so an interrupted change still leaves
 			// something to go back to.
-			a.recordAIChange(hostID, path, rollback.ActionWrite, []byte(before), !existed)
+			snap := a.recordAIChange(hostID, path, rollback.ActionWrite, []byte(before), !existed)
 			// SaveTextFile, not WriteTextFile: the latter narrows the result to
 			// an ActionResult and drops InPlace with it. The GUI puts that on
 			// screen; over MCP it is the one thing about this write nobody can
 			// find out afterwards, so a clean-looking answer would be a lie.
 			res := a.SaveTextFile(hostID, SaveRequest{Path: path, Content: content})
+			if res.OK {
+				a.recordAIAfter(snap, []byte(content))
+				aiNoteFrom(ctx).setChange(snap, !existed, []byte(content), false)
+			}
 			m := withOutcome(res.ActionResult, out)
 			if res.InPlace {
 				m["inPlace"] = true
@@ -303,12 +311,14 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 		Name: "fs_delete",
 		Description: "Delete a single file. Directories are not accepted — a recursive delete " +
 			"is not something to do without looking at it, and it stays in the app. The file's " +
-			"contents are kept locally first, so the user can put it back.",
+			"contents are kept locally first, so the user can put it back. Deleting is off per " +
+			"server until the user allows it; on a server where it is off, LiteDeck asks them " +
+			"(showing the file) and the call waits for the answer.",
 		InputSchema: obj(map[string]any{
 			"hostId": hostArg,
-			"path":   map[string]any{"type": "string", "description": "Absolute path to a file."},
+			"path":   map[string]any{"type": "string", "description": "Absolute path to a file. On Windows C:\\Users\\me\\a.txt works."},
 		}, "hostId", "path"),
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hostID, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
@@ -316,13 +326,13 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			// Whether deletion is offered at all is a separate question from
 			// whether using it interrupts the user, so it is a separate switch.
 			// Off unless asked for: most people want an agent that reads and
-			// edits, not one that removes things.
-			if !a.mcpDeleteAllowed(hostID) {
-				return nil, fmt.Errorf("deleting files is switched off for this server. " +
-					"The user turns it on per server in LiteDeck's MCP settings; it cannot be " +
-					"enabled from here")
-			}
-			path := str(args, "path")
+			// edits, not one that removes things. Off is no longer a dead end,
+			// though — see askGrant below.
+			allowed := a.mcpDeleteAllowed(hostID)
+			refused := fmt.Errorf("deleting files is switched off for this server. " +
+				"The user turns it on per server in LiteDeck's MCP settings; it cannot be " +
+				"enabled from here")
+			path := a.mcpPath(hostID, args)
 			if path == "" {
 				return nil, fmt.Errorf("path is required")
 			}
@@ -344,6 +354,9 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			var before string
 			existing, err := a.ReadTextFile(hostID, cleaned)
 			switch {
+			case err != nil && !allowed:
+				// Nothing to show the person, so nothing to ask them about.
+				return nil, refused
 			case err != nil:
 				return nil, fmt.Errorf("%s: %w", cleaned, err)
 			case existing.Binary || existing.TooLarge:
@@ -355,7 +368,8 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				before = existing.Content
 			}
 
-			out, err := a.approveWrite(writeRequest{
+			req := writeRequest{
+				ctx:     ctx,
 				hostID:  hostID,
 				tool:    "fs_delete",
 				summary: fmt.Sprintf("delete %s", cleaned),
@@ -363,19 +377,30 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				path:    cleaned,
 				before:  before,
 				after:   "",
-			})
+			}
+			var out approvalOutcome
+			if allowed {
+				out, err = a.approveWrite(req)
+			} else {
+				out, err = a.askGrant(req, "delete")
+			}
 			if err != nil {
 				return nil, err
 			}
-			a.recordAIChange(hostID, cleaned, rollback.ActionDelete, []byte(before), false)
-			return withOutcome(a.DeletePaths(hostID, []string{cleaned}, false, ""), out), nil
+			snap := a.recordAIChange(hostID, cleaned, rollback.ActionDelete, []byte(before), false)
+			res := a.DeletePaths(hostID, []string{cleaned}, false, "")
+			if res.OK {
+				aiNoteFrom(ctx).setChange(snap, false, nil, true)
+			}
+			return withOutcome(res, out), nil
 		},
 	})
 
 	s.Register(mcp.Tool{
 		Name: "run_command",
 		Description: "Run a shell command on the server and return its output. Off unless the " +
-			"user turned it on for that server, and by default they are asked before each one. " +
+			"user turned it on for that server — where it is off, LiteDeck asks them (showing the " +
+			"command) and the call waits — and by default they are asked before each one. " +
 			"Nothing it does can be undone — no copy is kept, the way one is for a file write. " +
 			"There is no sudo here, and there is no way to ask for it: the command runs as the " +
 			"login user with no terminal attached, so anything that wants a password fails rather " +
@@ -400,7 +425,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 					"retry runs it a second time alongside the first.",
 			},
 		}, "hostId", "command"),
-		Handler: func(_ context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hostID, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
@@ -409,22 +434,26 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			// apart from the approval mode and from file deletion. Without this
 			// switch the per-tool allowlist would be decorative, which is the
 			// objection that kept this tool out until it had one.
-			if !a.mcpExecAllowed(hostID) {
-				return nil, fmt.Errorf("running commands is switched off for this server. " +
-					"The user turns it on per server in LiteDeck's MCP settings; it cannot be " +
-					"enabled from here")
-			}
 			command := strings.TrimSpace(str(args, "command"))
 			if command == "" {
 				return nil, fmt.Errorf("command is required")
 			}
 
-			out, err := a.approveWrite(writeRequest{
+			req := writeRequest{
+				ctx:     ctx,
 				hostID:  hostID,
 				tool:    "run_command",
 				summary: "run " + clipArg(command),
 				command: command,
-			})
+			}
+			var out approvalOutcome
+			if a.mcpExecAllowed(hostID) {
+				out, err = a.approveWrite(req)
+			} else {
+				// Off is a question for the person, not a dead end — the
+				// command is in front of them when they answer. See askGrant.
+				out, err = a.askGrant(req, "exec")
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -434,7 +463,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				return nil, err
 			}
 			wait := execTimeout(args)
-			ctx, cancel := context.WithTimeout(context.Background(), wait)
+			runCtx, cancel := context.WithTimeout(context.Background(), wait)
 			defer cancel()
 
 			// sh -c rather than the raw line: Exec quotes argv element by
@@ -442,14 +471,14 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 			// that invariant intact and still gives the user's shell the pipes
 			// and redirection they wrote. The Command Log shows the assembled
 			// line, which is what actually ran.
-			res, err := conn.Exec(ctx, "sh", "-c", command)
+			res, err := conn.Exec(runCtx, "sh", "-c", command)
 			if err != nil {
 				// Giving up on the answer does not cancel the work. Checked
 				// against a real server: a command told to wait one second and
 				// sleep three still left its file behind afterwards. Saying
 				// "context deadline exceeded" hides the one fact that changes
 				// what to do next.
-				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 					return nil, fmt.Errorf("the command did not finish within %s, so LiteDeck "+
 						"stopped waiting for it. It is still running on the server — nothing "+
 						"was cancelled. Find out what it did before running it again, and "+
@@ -458,6 +487,7 @@ func (a *App) registerMCPWriteTools(s *mcp.Server) {
 				return nil, err
 			}
 
+			aiNoteFrom(ctx).setRun(res.ExitCode, string(res.Stdout)+string(res.Stderr))
 			stdout, outClipped := clipOutput(res.Stdout)
 			stderr, errClipped := clipOutput(res.Stderr)
 			m := map[string]any{

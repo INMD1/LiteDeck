@@ -1,6 +1,6 @@
 # Install and server setup
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 ## First launch: getting past the warning
 

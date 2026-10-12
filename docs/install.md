@@ -1,6 +1,6 @@
 # 설치와 서버 준비
 
-[← README](../README.md)
+[← README](../README.ko.md)
 
 ## 첫 실행: 경고 넘기기
 

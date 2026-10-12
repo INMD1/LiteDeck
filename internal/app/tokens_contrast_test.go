@@ -81,7 +81,33 @@ var contrastPairs = []tokenPair{
 	{"--warn", "--warn-bg", "주의 배지"},
 	{"--danger", "--danger-bg", "위험 배지·오류 배너"},
 
+	// The second accent marks what an AI client did — its Command Log rows and
+	// the AI work graph — and is read as text on every ground and on its badge.
+	{"--accent-2", "--bg", "AI 표시"},
+	{"--accent-2", "--bg-raised", "AI 표시 (패널)"},
+	{"--accent-2", "--accent-2-bg", "AI 배지"},
+
 	{"--fg-on-accent", "--accent", "강조 버튼의 글자"},
+	{"--fg-on-danger", "--danger", "위험 버튼의 글자"},
+}
+
+// TestNoTextColourBypassesTheTokens catches the hole the table above cannot
+// see: a rule that paints its text with a literal colour sits outside every
+// pair here. Three did — `color: #fff` on the accent and danger fills — and
+// passed this gate for as long as those fills were dark. The neon theme made
+// them light, and the buttons became white on pale cyan.
+func TestNoTextColourBypassesTheTokens(t *testing.T) {
+	path := filepath.Join("..", "..", "frontend", "src", "app.css")
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read app.css: %v", err)
+	}
+	literal := regexp.MustCompile(`(?m)^\s*color:\s*(#[0-9a-fA-F]{3,8}|white|black|rgb)`)
+	for i, line := range strings.Split(string(src), "\n") {
+		if literal.MatchString(line) {
+			t.Errorf("app.css:%d: %s — 글자색은 토큰으로. 테마가 바뀌면 이 줄만 따라오지 않는다", i+1, strings.TrimSpace(line))
+		}
+	}
 }
 
 func TestTokenContrast(t *testing.T) {

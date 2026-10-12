@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -121,10 +122,17 @@ type MCPWritePrompt struct {
 	Before string `json:"before,omitempty"`
 	After  string `json:"after,omitempty"`
 	Path   string `json:"path,omitempty"`
+	// Grant is set when the tool is switched off for this host — "delete" or
+	// "exec" — and the dialog is asking whether to allow it at all. See
+	// askGrant.
+	Grant string `json:"grant,omitempty"`
 }
 
 // writeRequest is what a write tool hands the gate.
 type writeRequest struct {
+	// ctx is the tool call's, so the outcome reaches the work record. Nil
+	// outside an MCP call.
+	ctx     context.Context
 	hostID  string
 	tool    string
 	summary string
@@ -132,6 +140,8 @@ type writeRequest struct {
 	path    string
 	before  string
 	after   string
+	// grant marks a request for a switch that is off; see askGrant.
+	grant string
 }
 
 // approvalOutcome is why a write did or did not run. It reaches the model, so
@@ -188,13 +198,53 @@ func (a *App) policyFor(hostID string) config.MCPWritePolicy {
 }
 
 // approveWrite is the gate every write tool passes through.
-func (a *App) approveWrite(req writeRequest) (approvalOutcome, error) {
+func (a *App) approveWrite(req writeRequest) (out approvalOutcome, err error) {
+	defer func() { aiNoteFrom(req.ctx).setApproval(out, req.command) }()
 	policy := a.policyFor(req.hostID)
 	if !asksAbout(policy.Mode, req.tool) {
 		a.log.AIWrite(req.hostID, req.summary, string(outcomeAuto))
 		return outcomeAuto, nil
 	}
+	return a.askPerson(req)
+}
 
+// askGrant is the dialog for a tool that is switched off on this host.
+//
+// It used to be a flat refusal, and the first person to meet it asked why the
+// agent could not delete a file when every other change went through: the
+// switch was in a panel they had no reason to open. Now the agent's request is
+// what brings the question to them — with the file or the command in front of
+// them — and the answer is theirs: no, this once, or from now on for this
+// server (the dialog turns the switch on itself, through the same binding the
+// panel uses).
+//
+// Asked whatever the approval mode. Bypass decides whether allowed changes
+// interrupt anyone; it is not consent to something that was never allowed.
+// And nothing the agent sends can answer it: the switch still only changes in
+// the app, by a person.
+func (a *App) askGrant(req writeRequest, grant string) (out approvalOutcome, err error) {
+	defer func() { aiNoteFrom(req.ctx).setApproval(out, req.command) }()
+	req.grant = grant
+	out, err = a.askPerson(req)
+	if err == nil {
+		return out, nil
+	}
+	what := "deleting files"
+	if grant == "exec" {
+		what = "running commands"
+	}
+	if out == outcomeTimeout {
+		return out, fmt.Errorf("%s is switched off for this server. LiteDeck asked the user whether "+
+			"to allow it and nobody answered within %s, so nothing happened. It cannot be enabled "+
+			"from here", what, writeApprovalTimeout)
+	}
+	return out, fmt.Errorf("%s is switched off for this server, and the user chose not to allow "+
+		"it for this request. Do not retry; ask them what they want instead. It cannot be enabled "+
+		"from here", what)
+}
+
+// askPerson puts a change in front of the user and waits for the answer.
+func (a *App) askPerson(req writeRequest) (approvalOutcome, error) {
 	id := a.approvals.nextID()
 	ch := make(chan bool, 1)
 
@@ -216,6 +266,7 @@ func (a *App) approveWrite(req writeRequest) (approvalOutcome, error) {
 		ID: id, HostID: req.hostID, Host: host, Tool: req.tool,
 		Summary: req.summary, Command: req.command,
 		Path: req.path, Before: req.before, After: req.after,
+		Grant: req.grant,
 	}
 	a.approvals.mu.Lock()
 	if a.approvals.pending == nil {

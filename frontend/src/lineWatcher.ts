@@ -26,12 +26,22 @@ const CAUGHT = /^\s*(code|vi)(?:\s+(.*))?$/
 const TERMINAL_REPLY =
   /^\x1b(?:\[[?>]?[0-9;]*[Rcnt]|P[^\x1b]*\x1b\\|\][^\x07]*\x07)$/
 
+/** A terminal answering the shell, not a keystroke. */
+export function isTerminalReply(data: string): boolean {
+  return TERMINAL_REPLY.test(data)
+}
+
 export type CaughtCommand = {
   command: string
   arg: string
   /** Exactly what was on the input line, so it can be erased character by
    *  character. Cancelling it needs the count, not the text. */
   line: string
+  /** The line was read off the screen rather than rebuilt from keystrokes —
+   *  Tab completed it, or an arrow recalled it. The shell's own line may then
+   *  hold more than was typed, so erasing it takes the shell's line-editing
+   *  keys rather than a count of backspaces. */
+  fromScreen?: boolean
 }
 
 /**
@@ -63,6 +73,12 @@ export class LineWatcher {
   private buf = ''
   private blind = false
 
+  /** Nothing typed on this line yet. The caller marks where on the screen the
+   *  line starts at that moment, so a blind line can be read back later. */
+  get fresh(): boolean {
+    return this.buf === '' && !this.blind
+  }
+
   /**
    * Called for every completed line, whether or not it could be read.
    *
@@ -72,16 +88,33 @@ export class LineWatcher {
    */
   onEnter: ((entered: EnteredLine) => void) | null = null
 
-  /** Returns the command to handle, or null to send the input on as usual. */
-  feed(data: string, atPrompt: boolean): CaughtCommand | null {
+  /**
+   * Returns the command to handle, or null to send the input on as usual.
+   *
+   * `screen` reads back what the shell drew for this line, for when the
+   * keystrokes cannot say — `vi READ⇥` is how most people open a file, and the
+   * completed name only ever exists on the screen. It answers null whenever
+   * what is on the screen is not certainly this line, and then the line is
+   * blind exactly as it was before.
+   */
+  feed(data: string, atPrompt: boolean, screen?: () => string | null): CaughtCommand | null {
     // Not typing: the terminal talking to the shell on its own account.
     if (TERMINAL_REPLY.test(data)) return null
 
     if (data === '\r' || data === '\n') {
-      const line = this.buf
-      const blind = this.blind
+      let line = this.buf
+      let blind = this.blind
+      let fromScreen = false
       this.buf = ''
       this.blind = false
+      if (blind && atPrompt && screen) {
+        const seen = screen()
+        if (seen !== null) {
+          line = seen
+          blind = false
+          fromScreen = true
+        }
+      }
       // Reported even when it could not be read, and even when the shell was
       // not at a prompt — an answer typed into `less` is not a command, but
       // "something was entered here" is still true, and the blind flag is what
@@ -89,7 +122,7 @@ export class LineWatcher {
       this.onEnter?.({ line: blind ? '' : line, blind: blind || !atPrompt })
       if (blind || !atPrompt) return null
       const m = CAUGHT.exec(line)
-      return m ? { command: m[1], arg: m[2] ?? '', line } : null
+      return m ? { command: m[1], arg: (m[2] ?? '').trim(), line, fromScreen } : null
     }
     // Backspace, the one edit that can be tracked exactly.
     if (data === '\x7f' || data === '\b') {

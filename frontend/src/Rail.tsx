@@ -73,6 +73,9 @@ export function Rail({
   onHide,
   onShow,
   collapsed,
+  onOpenAI,
+  aiActive,
+  aiLive,
 }: {
   hosts: HostView[]
   activeID: string | null
@@ -103,6 +106,12 @@ export function Rail({
   onShow: () => void
   /** Showing the icon strip rather than the full column. */
   collapsed: boolean
+  /** The AI work screen. Not a host's section: it covers every host, so it
+   *  sits apart from them and is there before anything is connected. */
+  onOpenAI?: () => void
+  aiActive?: boolean
+  /** An AI client did something in the last couple of minutes. */
+  aiLive?: boolean
 }) {
   const active = hosts.find((h) => h.id === activeID)
 
@@ -110,6 +119,7 @@ export function Rail({
     return (
       <CollapsedRail
         {...{ hosts, activeID, active, onSelect, onConnect, groups, current, onNavigate, onShow, selfMode }}
+        {...{ onOpenAI, aiActive, aiLive }}
       />
     )
   }
@@ -214,6 +224,24 @@ export function Rail({
               host shared with AI clients — see RailLock. */}
           <div className="rail-group">
             <RailLock hostID={activeID} />
+          </div>
+        </nav>
+      )}
+
+      {onOpenAI && (
+        <nav className="rail-nav rail-ai" aria-label={t('AI 작업')}>
+          <div className="rail-group">
+            <div className="rail-group-label">AI</div>
+            <button
+              className="rail-item"
+              data-on={aiActive || undefined}
+              aria-current={aiActive ? 'page' : undefined}
+              onClick={onOpenAI}
+            >
+              <Icon name="ai" />
+              {t('AI 작업')}
+              {aiLive && <span className="ai-live-dot" aria-hidden="true" title={t('AI가 작업 중입니다')} />}
+            </button>
           </div>
         </nav>
       )}
@@ -328,6 +356,9 @@ function CollapsedRail({
   onNavigate,
   onShow,
   selfMode,
+  onOpenAI,
+  aiActive,
+  aiLive,
 }: {
   hosts: HostView[]
   activeID: string | null
@@ -339,6 +370,9 @@ function CollapsedRail({
   onNavigate: (id: string) => void
   onShow: () => void
   selfMode?: boolean
+  onOpenAI?: () => void
+  aiActive?: boolean
+  aiLive?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const pop = useRef<HTMLDivElement>(null)
@@ -431,6 +465,21 @@ function CollapsedRail({
         <div className="rail-mini-group">
           <RailLock hostID={activeID} mini />
         </div>
+        {onOpenAI && (
+          <div className="rail-mini-group" data-first={groups.length === 0 || undefined}>
+            <button
+              className="rail-mini-btn"
+              data-on={aiActive || undefined}
+              aria-current={aiActive ? 'page' : undefined}
+              onClick={onOpenAI}
+              title={t('AI 작업')}
+              aria-label={t('AI 작업')}
+            >
+              <Icon name="ai" />
+              {aiLive && <span className="ai-live-dot" aria-hidden="true" />}
+            </button>
+          </div>
+        )}
       </nav>
     </aside>
   )

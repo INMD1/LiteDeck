@@ -66,6 +66,20 @@ func (a *App) mcpHost(args map[string]any) (string, error) {
 	return id, nil
 }
 
+// mcpPath reads a path argument in the server's own spelling.
+//
+// A model talking to a Windows server writes `C:\Users\me\a.txt` or
+// `C:/Users/me/a.txt`, which is what the server calls it. The file layer works
+// in SFTP's `/C:/Users/me/a.txt`, and handed the Windows form it answered
+// "path must be absolute" — wrong, and pointing the model the wrong way.
+func (a *App) mcpPath(hostID string, args map[string]any) string {
+	p := str(args, "path")
+	if p != "" && a.isWindows(hostID) {
+		p = toRemotePath(p)
+	}
+	return p
+}
+
 func str(args map[string]any, key string) string {
 	v, _ := args[key].(string)
 	return strings.TrimSpace(v)
@@ -551,14 +565,14 @@ func (a *App) registerMCPTools(s *mcp.Server) {
 		Description: "List a directory over SFTP. Nothing is installed on the server to do this.",
 		InputSchema: obj(map[string]any{
 			"hostId": hostArg,
-			"path":   map[string]any{"type": "string", "description": "Absolute path. Defaults to the login home directory."},
+			"path":   map[string]any{"type": "string", "description": "Absolute path. On Windows C:\\Users\\me and C:/Users/me both work. Defaults to the login home directory."},
 		}, "hostId"),
 		Handler: func(_ context.Context, args map[string]any) (any, error) {
 			id, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
 			}
-			path := str(args, "path")
+			path := a.mcpPath(id, args)
 			if path == "" {
 				if path, err = a.HomeDir(id); err != nil {
 					return nil, err
@@ -603,14 +617,14 @@ func (a *App) registerMCPTools(s *mcp.Server) {
 			"rather than truncated into nonsense.",
 		InputSchema: obj(map[string]any{
 			"hostId": hostArg,
-			"path":   map[string]any{"type": "string", "description": "Absolute path to a text file."},
+			"path":   map[string]any{"type": "string", "description": "Absolute path to a text file. On Windows C:\\Users\\me\\a.txt works."},
 		}, "hostId", "path"),
 		Handler: func(_ context.Context, args map[string]any) (any, error) {
 			id, err := a.mcpHost(args)
 			if err != nil {
 				return nil, err
 			}
-			path := str(args, "path")
+			path := a.mcpPath(id, args)
 			if path == "" {
 				return nil, fmt.Errorf("path is required")
 			}

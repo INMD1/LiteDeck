@@ -1,6 +1,11 @@
 # 기여 가이드
 
-한국어로 관리합니다. 영어 문서는 [README.en.md](README.en.md)에 있습니다.
+이 안내는 한국어로 관리합니다. 영어 README 는 [README.md](README.md), 한국어 README 는
+[README.ko.md](README.ko.md) 입니다.
+
+**README 를 고칠 때는 영어판(`README.md`)을 먼저 고치고 한국어판(`README.ko.md`)을 맞춥니다.**
+저장소에 처음 들어온 사람이 보는 것이 영어판이기 때문입니다. `docs/` 아래 문서는 지금처럼
+한국어판과 `.en.md` 를 함께 고칩니다.
 
 ## 시작하기
 
@@ -8,6 +13,7 @@
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 git clone https://github.com/cpprhtn/LiteDeck.git
 cd LiteDeck
+git switch dev          # 작업은 dev 에서 — 아래 「PR」 참고
 wails dev
 ```
 
@@ -108,6 +114,9 @@ docker exec <fixture> ps -eo pid,ppid,... > testdata/golden/<distro>/ps.txt
 
 ## PR
 
+- **PR 은 `dev` 브랜치로 보내 주세요.** `main` 은 릴리스 전용입니다 — `dev` 에 모인 변경을
+  릴리스 때 한꺼번에 `main` 으로 옮기므로, `main` 으로 온 PR 은 `dev` 로 바꿔 달라고 부탁드리게 됩니다.
+  브랜치는 최신 `dev` 에서 따 주세요
 - **DCO**: 커밋에 `Signed-off-by:`를 넣어주세요 (`git commit -s`). CLA는 없습니다
 - 동작을 바꾸면 테스트를 함께 주세요. 통합 테스트가 있으면 더 좋습니다
 - 설계 결정을 바꿨다면 PR 본문에 **발견 경위 / 원인 / 대응 / 검증** 순서로 적어주세요. "고쳤습니다"만 있으면 반년 뒤에 같은 실수를 되돌리게 됩니다

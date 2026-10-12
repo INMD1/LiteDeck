@@ -248,6 +248,111 @@ try {
     if (!gone) onServer(`rm -rf ${JSON.stringify(`${DIR}/${sub}`)}`)
   }
 
+  // -- terminal splits ---------------------------------------------------
+  //
+  // Each pane is a shell channel on the connection that is already open. What
+  // can go wrong is the bookkeeping: a pane closed in the UI whose channel
+  // stays open on the server, which nothing on screen would show until the
+  // host ran out of slots. So the server is asked directly — through docker,
+  // not the app's own connection — how many terminals the login user has.
+  const ptys = () => {
+    try {
+      return Number(onServer(`ps -u deploy -o tty= | grep -c pts || true`))
+    } catch {
+      return -1
+    }
+  }
+  const settlePtys = async (want) => {
+    let got = -1
+    for (let i = 0; i < 30 * SCALE; i++) {
+      got = ptys()
+      if (got === want) return got
+      await page.waitForTimeout(200)
+    }
+    return got
+  }
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+  const cells = page.locator('.term-slot[data-active] .term-cell')
+  const firstPane = await visible(cells.first(), ms(20000))
+  check('the terminal opens', firstPane)
+  if (firstPane) {
+    const before = await settlePtys(1)
+    check('one pane is one terminal on the server', before === 1, `the server has ${before}`)
+
+    await page.getByRole('button', { name: 'Split side by side', exact: true }).click()
+    await page.waitForFunction(
+      () => document.querySelectorAll('.term-slot[data-active] .term-cell').length === 2,
+      null,
+      { timeout: ms(15000) },
+    )
+    await page.getByRole('button', { name: 'Split top and bottom', exact: true }).click()
+    await page.waitForFunction(
+      () => document.querySelectorAll('.term-slot[data-active] .term-cell').length === 3,
+      null,
+      { timeout: ms(15000) },
+    )
+    const three = await settlePtys(3)
+    check('splitting twice gives three panes and three terminals', three === 3, `the server has ${three}`)
+
+    // Twelve more opened and closed, one at a time. A leak of one channel per
+    // round would leave fifteen; the budget would have refused long before.
+    for (let i = 0; i < 12; i++) {
+      await page.getByRole('button', { name: 'Split side by side', exact: true }).click()
+      await page.waitForFunction(
+        () => document.querySelectorAll('.term-slot[data-active] .term-cell').length === 4,
+        null,
+        { timeout: ms(15000) },
+      )
+      const focused = page.locator('.term-slot[data-active] .term-cell[data-focus]')
+      await focused.hover()
+      await focused.getByRole('button', { name: 'Close this pane', exact: true }).click()
+      await page.waitForFunction(
+        () => document.querySelectorAll('.term-slot[data-active] .term-cell').length === 3,
+        null,
+        { timeout: ms(15000) },
+      )
+    }
+    const after = await settlePtys(3)
+    check('twelve panes opened and closed leave no channel behind', after === 3, `the server has ${after}`)
+
+    // Past the budget the server is not asked at all, and the reason is on the
+    // screen in words — not a pane that never appears.
+    for (let i = 0; i < 2; i++) {
+      await page.getByRole('button', { name: 'Split side by side', exact: true }).click()
+      await page.waitForTimeout(ms(400))
+    }
+    await page.getByRole('button', { name: 'Split side by side', exact: true }).click()
+    const told = await visible(page.locator('.error', { hasText: 'MaxSessions' }), ms(10000))
+    check('a split past the channel budget says why', told)
+    const capped = await settlePtys(5)
+    check('the budget holds on the server', capped === 5, `the server has ${capped}`)
+    const dismiss = page.locator('.error').getByRole('button', { name: 'Close', exact: true })
+    if (await dismiss.isVisible().catch(() => false)) await dismiss.click()
+
+    // The arrangement survives a reload: Go still holds the shells, and the
+    // page puts them back where they were rather than one tab each.
+    await page.reload()
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click().catch(() => {})
+    let restored = 0
+    for (let i = 0; i < 30 * SCALE; i++) {
+      restored = await page.locator('.term-slot[data-active] .term-cell').count()
+      if (restored === 5) break
+      await page.waitForTimeout(200)
+    }
+    check('a reload puts the panes back in one tab', restored === 5, `${restored} panes in the tab`)
+
+    // Back to one pane, so the reconnect below starts from where it used to.
+    for (let i = 0; i < 4; i++) {
+      const focused = page.locator('.term-slot[data-active] .term-cell[data-focus]')
+      await focused.hover()
+      await focused.getByRole('button', { name: 'Close this pane', exact: true }).click()
+      await page.waitForTimeout(ms(200))
+    }
+    const one = await settlePtys(1)
+    check('closing panes closes their terminals', one === 1, `the server has ${one}`)
+    await page.getByRole('button', { name: 'Files', exact: true }).click()
+  }
+
   // -- reconnect ---------------------------------------------------------
   //
   // Not a formality. The reconnect path is where a pending prompt used to be
@@ -316,6 +421,107 @@ try {
   } else {
     check('the theme picker is on screen', false)
   }
+
+  // -- the AI work graph -------------------------------------------------
+  //
+  // An agent on the real MCP endpoint, through the real tools, against the real
+  // server — and the graph drawn from what it did. The three things that can
+  // only be checked end to end: nodes arrive while the agent works, a file
+  // change is linked to the restart of the service it belongs to, and a session
+  // revert walks a chain of writes back to where it started.
+  //
+  // Passwordless sudo in this throwaway container is what lets the restart
+  // succeed without a person opening the lock; detection caches it per
+  // connection, hence the reconnect.
+  execFileSync('docker', ['exec', CONTAINER, 'sh', '-c',
+    'chown deploy /etc/nginx/conf.d && printf "server_tokens off;\\n" > /etc/nginx/conf.d/e2e.conf && ' +
+    'chown deploy /etc/nginx/conf.d/e2e.conf && ' +
+    'echo "deploy ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/zz-e2e && chmod 440 /etc/sudoers.d/zz-e2e'])
+  const rpc = (m, ...a) => page.evaluate(([m, a]) => window.go.app.App[m](...a), [m, a])
+  await rpc('DisconnectHost', 'e2e')
+  await rpc('ConnectHost', 'e2e')
+  await rpc('DetectHost', 'e2e')
+  await rpc('SetMCPEnabled', true)
+  await rpc('SetMCPHost', 'e2e', true)
+  await rpc('SetMCPHostExec', 'e2e', true)
+  await rpc('SetMCPWritePolicy', 'e2e', 'bypass', 60)
+  const mcpState = await rpc('AddMCPClient', 'e2e agent')
+  const agent = mcpState.clients.find((c) => c.label === 'e2e agent')
+  check('a named MCP client gets a token of its own', !!agent?.token && agent.token !== mcpState.token)
+
+  await page.getByRole('button', { name: 'AI work', exact: true }).first().click()
+  await visible(page.getByText('No AI work recorded yet'), ms(10000))
+
+  let rpcID = 1
+  const mcp = async (token, method, params, session) => {
+    const res = await fetch(mcpState.url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...(session ? { 'Mcp-Session-Id': session } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: rpcID++, method, params }),
+    })
+    return { session: res.headers.get('mcp-session-id'), body: await res.json() }
+  }
+  const { session } = await mcp(agent.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} })
+  check('initialize starts a session', !!session)
+  const conf = '/etc/nginx/conf.d/e2e.conf'
+  const tool = async (name, args) => {
+    await mcp(agent.token, 'tools/call', { name, arguments: { hostId: 'e2e', ...args } }, session)
+    // Paced under the endpoint's rate limit, and slowly enough to watch.
+    await page.waitForTimeout(400)
+  }
+  await tool('fs_read', { path: '/etc/nginx/nginx.conf' })
+  await tool('fs_read', { path: conf })
+  await tool('fs_write', { path: conf, content: 'server_tokens off;\nclient_max_body_size 20m;\n' })
+  await tool('fs_write', { path: conf, content: 'server_tokens off;\nclient_max_body_size 32m;\n' })
+  await tool('svc_control', { unit: 'nginx.service', action: 'restart' })
+  await tool('run_command', { command: 'false' })
+
+  const drawn = await page
+    .waitForFunction(() => document.querySelectorAll('.ai-node').length >= 5, null, { timeout: ms(10000) })
+    .then(() => true, () => false)
+  check('the graph fills in while the agent works, without a reload', drawn)
+  check('reads in a row fold into one node', (await page.locator('.ai-node[data-kind="reads"]').count()) === 1)
+  check('two writes to one file are linked', (await page.locator('.ai-edge[data-kind="same"]').count()) >= 1)
+  check(
+    'the nginx config change is linked to the nginx restart',
+    (await page.locator('.ai-edge[data-kind="affects"]').count()) === 1,
+    `restart: ${await page.locator('.ai-node[data-kind="service"]').getAttribute('data-result').catch(() => 'missing')}`,
+  )
+  check(
+    'a failed command says so in words',
+    (await page.locator('.ai-node[data-kind="command"][data-result="failed"] .ai-res').count()) === 1,
+  )
+
+  const writesOnGraph = page.locator('.ai-node[data-kind="file_write"]')
+  const stateOf = async (i, want) => {
+    await writesOnGraph.nth(i).click()
+    await page
+      .locator('.ai-state .badge')
+      .filter({ hasText: want })
+      .waitFor({ timeout: ms(10000) })
+      .catch(() => {})
+    return page.locator('.ai-state .badge').innerText().catch(() => '')
+  }
+  let got = await stateOf(1, 'Can be undone')
+  check('the latest write can be undone', got === 'Can be undone', got)
+  got = await stateOf(0, 'Changed again since')
+  check('the earlier write reads as changed since', got === 'Changed again since', got)
+
+  await page.getByRole('button', { name: 'Undo every file change in this session' }).click()
+  await page.locator('.ai-confirm').getByRole('button', { name: 'Restore', exact: true }).click()
+  await visible(page.locator('.ai-report'), ms(20000))
+  check(
+    'a session revert walks the chain back to where it started',
+    onServer(`cat ${conf}`) === 'server_tokens off;',
+    await page.locator('.ai-report').innerText().catch(() => ''),
+  )
+
+  const legacy = await mcp(mcpState.token, 'tools/call', { name: 'hosts_list', arguments: {} })
+  check('the original token works as it did', !!legacy.body?.result && !legacy.body.result.isError)
 
   // -- the console -------------------------------------------------------
   //

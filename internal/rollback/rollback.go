@@ -43,19 +43,23 @@ const (
 	ActionDelete = "delete"
 )
 
-// Limits. Generous enough for a night of unattended work, bounded so a runaway
+// Limits. Generous enough for a week of unattended work, bounded so a runaway
 // agent cannot fill the disk it is supposed to be protecting.
 const (
-	// MaxAge is how long a copy is worth keeping.
+	// DefaultMaxAge is how long a copy is kept unless the user chose otherwise.
 	//
-	// Somebody who sets an agent working overnight checks the result the next
-	// day; a copy nobody looked at in that window is not being kept for them,
-	// it is just an old copy of their config sitting on disk. This is a guard
-	// against a night going wrong, not an archive.
-	MaxAge = 24 * time.Hour
+	// It was 24 hours, sized for "set an agent working overnight and check in
+	// the morning". The work graph changed what the copies are for: they are
+	// what lets somebody look back at last Tuesday's session and put one file
+	// back, and a day is not long enough for that. A week is, and it is a
+	// setting now (SetLimits) rather than a promise baked in here.
+	DefaultMaxAge = 7 * 24 * time.Hour
 
-	MaxEntries = 300
-	MaxBytes   = 64 << 20 // 64 MiB of saved contents
+	// MaxEntries bounds the count, whatever the age. Raised with the window —
+	// 300 was a night's worth.
+	MaxEntries = 2000
+	// DefaultMaxBytes is the total of saved contents, before and after.
+	DefaultMaxBytes = 256 << 20
 	// MaxFileBytes skips anything too large to be worth holding. A file this
 	// size is not something a person restores from a list; it is git's problem.
 	MaxFileBytes = 4 << 20
@@ -77,6 +81,15 @@ type Entry struct {
 	// anyway so the list does not silently omit it — "this changed and cannot
 	// be undone" is information.
 	TooLarge bool `json:"tooLarge,omitempty"`
+	// AfterBytes is the size of what the change wrote, kept so the change can
+	// be shown as a diff later. Zero for a delete, and for a change made before
+	// this was recorded.
+	AfterBytes int64 `json:"afterBytes,omitempty"`
+	HasAfter   bool  `json:"hasAfter,omitempty"`
+	// Restored marks a change somebody has put back. Kept rather than dropped
+	// so the work graph can still show what the change was and that it was
+	// undone; the undo list leaves it out.
+	Restored bool `json:"restored,omitempty"`
 }
 
 // Undoable reports whether this entry can actually be put back.
@@ -85,6 +98,10 @@ func (e Entry) Undoable() bool { return !e.TooLarge }
 // Store is the on-disk history.
 type Store struct {
 	dir string
+
+	// The retention window and the size cap. Set from the user's settings.
+	maxAge   time.Duration
+	maxBytes int64
 
 	mu      sync.Mutex
 	seq     int
@@ -97,7 +114,7 @@ type Store struct {
 // convenience, and refusing to start because the undo list is unreadable would
 // be the tail wagging the dog. It starts empty and the app runs.
 func Open(dir string) *Store {
-	s := &Store{dir: filepath.Join(dir, "ai-history")}
+	s := &Store{dir: filepath.Join(dir, "ai-history"), maxAge: DefaultMaxAge, maxBytes: DefaultMaxBytes}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return s
 	}
@@ -121,7 +138,7 @@ func Open(dir string) *Store {
 	// prune otherwise runs on Record and on List — an AI making a change, or
 	// somebody opening the panel. Both stop happening the moment a user decides
 	// they are done with the integration, which is exactly when the promise in
-	// the docs matters: copies clear themselves after 24 hours. What is being
+	// the docs matters: copies clear themselves after a week. What is being
 	// held is the previous contents of somebody's server configuration, so a
 	// copy that outlives its window is not a tidiness problem.
 	if s.prune() {
@@ -156,10 +173,11 @@ func (s *Store) sweepOrphans() {
 	known := make(map[string]bool, len(s.entries))
 	for _, e := range s.entries {
 		known[e.ID+".blob"] = true
+		known[e.ID+".after.blob"] = true
 	}
+	cutoff := time.Now().Add(-s.maxAge)
 	s.mu.Unlock()
 
-	cutoff := time.Now().Add(-MaxAge)
 	for _, f := range entries {
 		name := f.Name()
 		if f.IsDir() || !strings.HasSuffix(name, ".blob") || known[name] {
@@ -178,6 +196,84 @@ func (s *Store) sweepOrphans() {
 func (s *Store) indexPath() string { return filepath.Join(s.dir, "index.json") }
 func (s *Store) blobPath(id string) string {
 	return filepath.Join(s.dir, id+".blob")
+}
+func (s *Store) afterPath(id string) string {
+	return filepath.Join(s.dir, id+".after.blob")
+}
+
+// SetLimits changes how long copies are kept and how much they may take up.
+// Zero or less leaves a limit at its default. Applied at once: shortening the
+// window drops what falls outside it.
+func (s *Store) SetLimits(maxAge time.Duration, maxBytes int64) {
+	if maxAge <= 0 {
+		maxAge = DefaultMaxAge
+	}
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxBytes
+	}
+	s.mu.Lock()
+	s.maxAge, s.maxBytes = maxAge, maxBytes
+	s.mu.Unlock()
+	if s.prune() {
+		_ = s.save()
+	}
+}
+
+// Limits reports the window and cap in force.
+func (s *Store) Limits() (time.Duration, int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxAge, s.maxBytes
+}
+
+// RecordAfter keeps what a change wrote, so it can be shown against what was
+// there before. Called once the write is done; a failure costs the diff, not
+// the undo.
+func (s *Store) RecordAfter(id string, after []byte) error {
+	if len(after) > MaxFileBytes {
+		return nil
+	}
+	if err := os.WriteFile(s.afterPath(id), after, 0o600); err != nil {
+		return fmt.Errorf("rollback: save new contents: %w", err)
+	}
+	s.mu.Lock()
+	found := false
+	for i := range s.entries {
+		if s.entries[i].ID == id {
+			s.entries[i].HasAfter, s.entries[i].AfterBytes = true, int64(len(after))
+			found = true
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		_ = os.Remove(s.afterPath(id))
+		return nil
+	}
+	_ = s.prune()
+	return s.save()
+}
+
+// After returns what a change wrote, when that was kept.
+func (s *Store) After(id string) ([]byte, bool) {
+	e, ok := s.Get(id)
+	if !ok || !e.HasAfter {
+		return nil, false
+	}
+	b, err := os.ReadFile(s.afterPath(id))
+	return b, err == nil
+}
+
+// MarkRestored records that a change was put back. The copies stay until they
+// age out, so the change can still be looked at.
+func (s *Store) MarkRestored(id string) error {
+	s.mu.Lock()
+	for i := range s.entries {
+		if s.entries[i].ID == id {
+			s.entries[i].Restored = true
+		}
+	}
+	s.mu.Unlock()
+	return s.save()
 }
 
 // Record saves the state of a file before an AI changes it.
@@ -281,6 +377,7 @@ func (s *Store) Forget(id string) error {
 	s.mu.Unlock()
 
 	_ = os.Remove(s.blobPath(id))
+	_ = os.Remove(s.afterPath(id))
 	return s.save()
 }
 
@@ -296,11 +393,12 @@ func (s *Store) prune() bool {
 
 	// Age first, so an expired entry frees its bytes before the size cap has to
 	// throw away something recent.
-	cutoff := time.Now().Add(-MaxAge)
+	cutoff := time.Now().Add(-s.maxAge)
 	fresh := s.entries[:0:0]
 	for _, e := range s.entries {
 		if e.At.Before(cutoff) {
 			_ = os.Remove(s.blobPath(e.ID))
+			_ = os.Remove(s.afterPath(e.ID))
 			continue
 		}
 		fresh = append(fresh, e)
@@ -309,14 +407,15 @@ func (s *Store) prune() bool {
 
 	var total int64
 	for _, e := range s.entries {
-		total += e.Bytes
+		total += e.Bytes + e.AfterBytes
 	}
 	// Drop from the oldest end until both limits are satisfied. Recent changes
 	// are the ones somebody is about to want back.
 	cut := 0
-	for cut < len(s.entries) && (len(s.entries)-cut > MaxEntries || total > MaxBytes) {
-		total -= s.entries[cut].Bytes
+	for cut < len(s.entries) && (len(s.entries)-cut > MaxEntries || total > s.maxBytes) {
+		total -= s.entries[cut].Bytes + s.entries[cut].AfterBytes
 		_ = os.Remove(s.blobPath(s.entries[cut].ID))
+		_ = os.Remove(s.afterPath(s.entries[cut].ID))
 		cut++
 	}
 	s.entries = s.entries[cut:]

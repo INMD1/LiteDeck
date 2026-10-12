@@ -1,6 +1,6 @@
 # Security
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 This is a tool that reaches production servers over SSH, so the following is not design
 intent. It is **what the code does today**, with the file to check it against.
@@ -107,7 +107,12 @@ safe ([`internal/mcp/http.go`](../internal/mcp/http.go)).
 - **The approval policy belongs to the app.** No tool changes it and no parameter relaxes it, so
   **a model has no way to request its own approval.** That the protocol carries no trustworthy
   statement of a client's intent was verified against Claude Code 2.1.22
-- **Undo copies live on this machine** and clear after 24 hours. Nothing is left on the server
+- **Undo copies live on this machine** and clear after 7 days by default (1–90 days and a size cap
+  are set in the MCP panel). What each change wrote is kept beside it, so it can be shown as a
+  diff. Nothing is left on the server
+- **The AI work record** (`ai-log.jsonl`) keeps 30 days on this machine only. Besides tool, target
+  and result it holds **command lines and the head of their output (4 KB)**, which can contain
+  secrets, so like the copies it is **0600**
 
 **Stated plainly:**
 

@@ -8,8 +8,8 @@
 <h1 align="center">LiteDeck</h1>
 
 <p align="center">
-  <b>SSH로 접속한 서버를 한 화면에서 관리하는 데스크톱 앱</b><br>
-  서버에는 아무것도 설치하지 않습니다
+  <b>A desktop app for managing the servers you reach over SSH, in one window</b><br>
+  Nothing gets installed on the server
 </p>
 
 <p align="center">
@@ -20,146 +20,177 @@
 </p>
 
 <p align="center">
-  <b>한국어</b> · <a href="README.en.md">English</a>
+  <b>English</b> · <a href="README.ko.md">한국어</a>
 </p>
 
 <p align="center">
-  <a href="#설치">다운로드</a> ·
-  <a href="docs/features.md">기능</a> ·
-  <a href="docs/security.md">보안</a> ·
-  <a href="docs/mcp.md">MCP 연동</a> ·
-  <a href="docs/support.md">지원 범위</a> ·
-  <a href="CONTRIBUTING.md">기여하기</a>
+  <a href="#install-and-connect">Download</a> ·
+  <a href="docs/features.en.md">Features</a> ·
+  <a href="docs/security.en.md">Security</a> ·
+  <a href="docs/mcp.en.md">MCP</a> ·
+  <a href="docs/support.en.md">What's verified</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
   <img src="docs/media/01-tour.gif" width="880"
-       alt="LiteDeck: 파일·편집기·서비스·프로세스·컨테이너·네트워크·세션·모니터링·터미널을 한 창에서">
+       alt="LiteDeck: files, editor, services, processes, containers, network, sessions, monitoring and terminal in one window">
 </p>
 
 <p align="center">
-  <sub>접속 한 번으로 <b>파일 · 편집기 · 서비스 · 프로세스 · 컨테이너 · 네트워크 · 세션 · 모니터링 · 터미널</b>까지.<br>
-  서버에는 아무것도 설치하지 않았습니다.</sub>
+  <sub>One connection covers <b>files, the editor, services, processes, containers, the network, sessions, monitoring and a terminal</b>.<br>
+  Nothing was installed on the server.</sub>
 </p>
 
 ---
 
-## 무엇을 할 수 있나
+## What it does
 
-SSH로 서버에 한 번 접속하면, 아래 작업을 같은 창에서 이어서 할 수 있습니다.
+Connect to a server over SSH once, and all of this is in the same window.
 
 | | |
 |---|---|
-| **파일** | 탐색·업로드·다운로드, 폴더째 전송. 전송이 끊기면 이어받습니다 |
-| **편집** | 문법 강조 편집기. 저장하기 전에 서버에 있는 내용과의 차이를 보여 줍니다 |
-| **서비스 · 프로세스 · 컨테이너** | systemd 유닛과 Windows 서비스, 작업 관리자식 프로세스 표, Docker·Podman 컨테이너와 Compose 프로젝트 |
-| **모니터링** | CPU·메모리·디스크·네트워크, NVIDIA GPU, 시간에 따른 추세와 시스템 이벤트 |
-| **보안 · 세션** | 방화벽과 fail2ban 상태, 지금 접속해 있는 사람, 접속 실패 요약 |
-| **터미널** | 내장 터미널. `vi nginx.conf`처럼 파일을 여는 명령은 앱의 편집기에서 엽니다 |
-| **설정 동기화** <sub>v2.3.0</sub> | 호스트 목록과 승인 정책을 암호화된 파일 하나로 내보내 다른 PC로 옮깁니다 |
+| **Files** | Browse, upload, download, transfer whole folders. An interrupted transfer resumes |
+| **Editing** | A syntax-highlighting editor that shows you the difference from what is on the server before it saves |
+| **Services · processes · containers** | systemd units and Windows services, a task-manager-style process table, Docker and Podman containers and Compose projects |
+| **Monitoring** | CPU, memory, disk, network and NVIDIA GPUs, with trends over time and system events |
+| **Security · sessions** | Firewall and fail2ban status, who is connected right now, a summary of failed logins |
+| **Terminal** | A built-in terminal with tabs, splits, themes and your choice of font. Commands that open a file, like `vi nginx.conf`, open it in the app's editor instead |
+| **AI work** | What MCP clients did on your servers through LiteDeck, as a graph per session — and the file changes, ready to put back |
+| **Settings sync** <sub>v2.3.0</sub> | Export your host list and approval policies as one encrypted file and take it to another machine |
 
-전체 목록과 자세한 설명은 [기능 문서](docs/features.md)에 있습니다.
+The full list, with the detail, is in [the feature document](docs/features.en.md).
 
-## 왜 LiteDeck인가
+**The app speaks English and Korean.** It starts in your operating system's language, and `EN` / `KO`
+at the bottom of the sidebar switches it. Every document linked from here has an English version,
+except the contributing guide.
 
-1. **서버에 설치할 것이 없습니다.** 에이전트·데몬·패키지가 필요 없고, 이미 열려 있는 SSH 포트 하나로 동작합니다. 서버에는 사용자가 한 작업의 결과만 남습니다
-2. **실행한 명령을 그대로 보여 줍니다.** 화면에서 한 작업은 전부 Command Log에 실제 명령으로 남습니다. 관리자 권한(sudo)이 필요하면 임의로 붙이지 않고 먼저 묻습니다
-3. **가입할 계정이 없습니다.** 사용 정보를 수집하지 않고, 전체 소스가 공개돼 있습니다
-4. **가볍습니다.** Electron을 쓰지 않습니다. 내려받는 파일 약 6MB, 설치 후 약 15MB이고, 1초 안에 실행됩니다 (v2.3.0 기준. macOS 판은 Intel·Apple Silicon 공용이라 12MB · 29MB)
+## Why LiteDeck
 
-## 설치와 첫 연결
+1. **Nothing to install on the server.** No agent, daemon or package — it works over the SSH port you already have open. What is left on the server is whatever you asked it to do
+2. **It shows you the commands it ran.** Everything you do on screen is recorded in the Command Log as the actual command. When something needs administrator rights (sudo), it asks first rather than adding it on its own
+3. **No account to sign up for.** Nothing about your use is collected, and the whole source is public
+4. **Lightweight.** Not Electron. About a 6 MB download and 17 MB installed on Windows, and it starts in under a second (sizes measured on v2.4.0; the macOS build is an Intel/Apple Silicon universal binary, so 12 MB and 30 MB there)
 
-[릴리스 페이지](https://github.com/cpprhtn/LiteDeck/releases)에서 받으세요.
+## MCP — let an AI work on your servers
 
-| 파일 | 대상 |
-|---|---|
-| `litedeck-desktop-macos.zip` | macOS (Intel·Apple Silicon 공용) |
-| `litedeck-desktop-windows-amd64.zip` | Windows 10/11 (amd64). 압축을 풀면 `litedeck.exe` 하나이고, 설치 없이 바로 실행합니다 |
-| `litedeck-desktop-linux-amd64.tar.gz` | Linux (amd64). **Ubuntu 24.04 이상** — `libwebkit2gtk-4.1`이 필요합니다. 22.04라면 [직접 빌드](docs/building.md)하세요 |
+<p align="center">
+  <img src="docs/media/08-ai-work.gif" width="880"
+       alt="The AI work screen: an agent's calls appear as nodes, an nginx config change is linked to the nginx restart, and the change is shown as a diff and undone">
+</p>
 
-> [!WARNING]
-> **현재 릴리스는 코드 서명이 되어 있지 않습니다.** 서명·공증에는 비용이 들어 초기에는 미서명으로 배포하며,
-> 함께 올리는 SHA256 체크섬은 **서명을 대신하지 못합니다.** 신뢰가 필요하면
-> [직접 빌드](docs/building.md)하세요.
->
-> 그래서 첫 실행 때 macOS Gatekeeper와 Windows SmartScreen 경고가 뜹니다. 넘어가는 방법은
-> [설치와 서버 준비](docs/install.md)에 적어 두었습니다.
+<p align="center">
+  <sub>An agent edits an nginx config and restarts nginx. Each call becomes a node as it happens;<br>
+  the change is shown as a diff and put back with one click.</sub>
+</p>
 
-**첫 연결**
+**Let AI work freely on your servers. What it did shows up as a graph, and changed files can be put back.**
 
-1. 앱을 열고 왼쪽 위의 **+ 추가**를 누릅니다. `~/.ssh/config`를 쓰고 있다면 **가져오기**로 한 번에 불러올 수 있습니다
-2. 주소·사용자·인증 방식(SSH 에이전트 · 키 파일 · 비밀번호)을 입력합니다
-3. 처음 접속하는 서버는 호스트 키 지문을 확인하라고 묻습니다. 확인하면 서버의 탭들이 열립니다
+MCP clients such as Claude Code and Codex read and change your servers through LiteDeck — over the
+same SSH connection as the screen, recorded in the same Command Log, with nothing installed on the
+server.
 
-**서버 쪽 준비.** Linux 서버라면 이미 SSH로 접속하고 계실 테니 준비할 것이 없습니다. Windows는 OpenSSH 서버만 켜면 됩니다.
-집에 있는 PC를 외부에서 다루려면 포트포워딩 대신 메시 VPN을 권합니다 —
-[서버 준비](docs/install.md#서버-준비) · [Tailscale로 외부에서 쓰기](docs/remote-access.md)
-
-**웹 브라우저로 쓰기 — 서버 모드.** 데스크톱 앱 대신, 서버 한 대에 LiteDeck을 올려 두고 웹 브라우저로
-접속해 쓸 수도 있습니다 — `litedeck-server-linux-amd64.tar.gz` · `litedeck-server-linux-arm64.tar.gz`.
-이 경우에는 LiteDeck이 웹 서버로 동작하고 로그인 화면이 있습니다. 실행·노출·로그인 설정은
-[서버 모드](docs/server-mode.md)에 적어 두었습니다.
-
-## MCP 연동 — AI 도구로 서버 다루기
-
-Claude Code·Claude Desktop 같은 MCP 클라이언트가 LiteDeck을 통해 서버를 조회하고 작업할 수 있습니다.
-화면과 **같은 SSH 연결**을 쓰고, AI가 실행한 명령도 **같은 Command Log**에 남습니다. 서버에는 여전히
-아무것도 설치하지 않습니다.
-
-- 조회 도구 12개, 변경 도구 6개
-- **파일을 바꾸기 전에는 기본적으로 확인을 받습니다.** 확인 창에 서버의 현재 내용과의 차이가 표시됩니다.
-  서버별로 「모든 변경을 확인」까지 올릴 수 있습니다
-- 승인 정책은 LiteDeck에서 서버별로 정하며, AI 클라이언트 쪽에서는 바꿀 수 없습니다
-- AI가 바꾼 파일은 되돌릴 수 있습니다
-- 명령 실행과 파일 삭제는 서버별로 따로 켜야 하며, 기본은 꺼져 있습니다 <sub>v1.7.0</sub>.
-  켜면 다른 변경 도구와 같은 승인 정책이 적용됩니다
+- **See what it did.** The AI work screen draws each session as a graph: a band per host, time left
+  to right, a file change linked to the restart of the service it belongs to. Give each client its
+  own token and the graph says which one did what
+- **Put files back.** Before an AI overwrites or deletes a file, the previous contents are kept on
+  this machine — 7 days by default. Undo one change, or every file change in a session, newest
+  first; a file something else changed since is skipped and listed
+- **The controls you already had stay as they were.** File changes are confirmed with a diff by
+  default; per server you can confirm everything, or stop asking for a few hours. Running commands
+  and deleting files are separate switches, off by default. None of it can be changed from the AI
+  client's side
+- **What it cannot see or undo.** Only work that went through LiteDeck is in the graph — not what an
+  AI did over SSH by itself, and not what you typed in a terminal. Undo restores file contents only;
+  restarts, killed processes and commands stay done
 
 ```bash
-claude mcp add --transport http litedeck http://127.0.0.1:<포트>/mcp \
-  --header "Authorization: Bearer <토큰>"
+claude mcp add --transport http litedeck http://127.0.0.1:<port>/mcp \
+  --header "Authorization: Bearer <token>"
 ```
 
-→ [MCP 연동](docs/mcp.md)
+→ [MCP integration](docs/mcp.en.md) — the 18 tools, the approval modes, the graph and its limits
 
-## 지원 환경
+## Install and connect
+
+Grab a build from the [releases page](https://github.com/cpprhtn/LiteDeck/releases).
+
+| File | For |
+|---|---|
+| `litedeck-desktop-macos.zip` | macOS (universal, Intel and Apple Silicon) |
+| `litedeck-desktop-windows-amd64.zip` | Windows 10/11 (amd64). Unzip to a single `litedeck.exe`, no installer |
+| `litedeck-desktop-linux-amd64.tar.gz` | Linux (amd64). **Ubuntu 24.04 or newer** — it needs `libwebkit2gtk-4.1`. On 22.04, [build from source](docs/building.en.md) |
+
+> [!WARNING]
+> **These builds are not code-signed.** Signing and notarisation both cost money, so early releases ship unsigned, and
+> the SHA256 checksums published alongside them **are not a substitute for a signature.** If you need that assurance,
+> [build from source](docs/building.en.md).
+>
+> That is also why the first launch trips macOS Gatekeeper and Windows SmartScreen. How to get past
+> both is in [Install and server setup](docs/install.en.md).
+
+**First connection**
+
+1. Open the app and press **+ Add** at the top left. If you use `~/.ssh/config`, **Import** brings those hosts in at once
+2. Enter the address, the user and how to log in (SSH agent, key file or password)
+3. The first time you connect to a server, you are asked to confirm its host key fingerprint. Confirm it and the server's tabs open
+
+**On the server side.** Linux needs nothing if you can already SSH into it. Windows needs the OpenSSH
+server switched on. To reach a machine at home from outside, a mesh VPN beats opening a port on your
+router — [preparing the server](docs/install.en.md#preparing-the-server) ·
+[reaching it over Tailscale](docs/remote-access.en.md)
+
+**Use it from a web browser — server mode.** Instead of the desktop app, you can put LiteDeck on one
+server and open it in a web browser — `litedeck-server-linux-amd64.tar.gz` ·
+`litedeck-server-linux-arm64.tar.gz`. In that case LiteDeck runs as a web server and has a login
+page. Running it, exposing it and setting up the login are covered in
+[server mode](docs/server-mode.en.md).
+
+## Where it runs
 
 > [!NOTE]
-> **macOS · Windows · Ubuntu에서 실행을 확인했습니다.** 어느 환경에서 무엇까지 확인했는지는
-> [지원 범위](docs/support.md)에 적어 두었습니다.
-> 삭제·프로세스 종료처럼 되돌릴 수 없는 작업은 시험용 서버에서 먼저 해 보세요.
+> **Runs on macOS, Windows and Ubuntu** — all three confirmed by opening it there. What was tested
+> where is written down in [What is and is not verified](docs/support.en.md).
+> Try the irreversible actions — deleting files, killing processes — on a throwaway server first.
 
-- **관리할 서버**: systemd를 쓰는 Linux(Ubuntu·Debian·라즈베리파이 등)와 Windows(OpenSSH 서버).
-  Windows 서버는 세션·보안 탭까지 지원하며, 이벤트 탭은 아직 없습니다
-- **앱을 실행할 PC**: macOS · Windows 10/11 · Linux(Ubuntu 24.04 이상)
+- **Servers it manages**: Linux with systemd (Ubuntu, Debian, Raspberry Pi and so on) and Windows
+  (with the OpenSSH server). Windows servers get the sessions and security tabs; the events tab is not
+  there yet
+- **Machines it runs on**: macOS, Windows 10/11, Linux (Ubuntu 24.04 or newer)
 
-**이런 환경에 맞습니다**
+**When this is the right tool**
 
-- 서버 두세 대에서 대여섯 대 정도를 직접 운영합니다. 로그를 보고, 서비스를 재시작하고, 설정 파일을 고칩니다
-- 그 서버에 다른 프로그램을 더 설치하고 싶지 않습니다. 이미 열려 있는 SSH로 충분하길 바랍니다
-- GUI를 쓰더라도, 무엇이 실행됐는지는 확인하고 싶습니다
-- 터미널을 버릴 생각은 없고, 자주 하는 일만 클릭으로 하고 싶습니다
+- You run somewhere between two and six servers yourself. You read logs, restart services and fix
+  config files on them
+- You do not want to install anything else on those servers. SSH is already open, and you would
+  like that to be enough
+- You want a GUI, but you still want to see what it ran
+- You are not giving up your terminal. You just want the frequent things to be a click
 
-서버 수십 대를 한꺼번에 다루거나, 선언적 상태 관리나 본격적인 원격 개발 환경이 필요하다면 다른 도구가 낫습니다.
-어떤 경우인지는 [LiteDeck이 적합하지 않은 환경](docs/support.md#litedeck이-적합하지-않은-환경)에 적어 두었습니다.
+If you need dozens of servers at once, declarative state, or a real remote development environment,
+something else is better. Which cases those are is written down in
+[when it is not](docs/support.en.md#when-it-is-not).
 
-## 더 읽어보기
+## Further reading
 
 | | |
 |---|---|
-| [보안](docs/security.md) | 호스트 키 검증·인증·자격증명 저장·sudo·MCP 엔드포인트. **못 하는 것을 먼저** 적었습니다 |
-| [지원 범위](docs/support.md) | 무엇을 어디서 검증했고 무엇이 미검증인지. 적합하지 않은 환경과 지원하지 않는 기능 |
-| [MCP 연동](docs/mcp.md) | 도구 18개, 승인 정책, 되돌리기, 안전장치 |
-| [기능 자세히](docs/features.md) | **전체 기능 목록**, 그리고 Command Log·편집기·전송·Compose·sshd 점검·ProxyJump |
-| [설치와 서버 준비](docs/install.md) | 첫 실행 경고 넘기기, Windows OpenSSH 켜기 |
-| [Tailscale로 외부에서 쓰기](docs/remote-access.md) | 포트포워딩 없이 집 PC에 접속하기. Tailscale SSH·MCP·서브넷 라우터, 그리고 계정 없이 가는 길 |
-| [소스에서 빌드](docs/building.md) | 빌드와 테스트 |
+| [Security](docs/security.en.md) | Host key verification, authentication, credential storage, sudo, the MCP endpoint. **What it cannot do comes first** |
+| [What is and is not verified](docs/support.en.md) | What was checked where, and what was not. Plus when this is not the right tool, and the non-goals |
+| [MCP integration](docs/mcp.en.md) | 18 tools, the approval policy, the AI work graph, undo, the safeguards |
+| [Features in detail](docs/features.en.md) | **The full feature list**, plus the Command Log, the editor, transfers, Compose, the sshd check and ProxyJump |
+| [Install and server setup](docs/install.en.md) | Getting past the first-launch warning, enabling OpenSSH on Windows |
+| [Reaching a machine over Tailscale](docs/remote-access.en.md) | Your home machine without port forwarding. Tailscale SSH, MCP, subnet routers, and doing it without an account |
+| [Build from source](docs/building.en.md) | Building and testing |
 
-## 기여
+## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요. **새 서버 OS를 지원하는 일이 어댑터 하나 구현으로 끝나도록** 설계돼 있습니다. Windows 지원도 그렇게 붙었습니다. OpenRC(Alpine)·launchd(macOS)·FreeBSD가 비어 있습니다.
+See [CONTRIBUTING.md](CONTRIBUTING.md) (Korean). The design goal is that **supporting a new server OS means writing one adapter**, which is how Windows support landed. OpenRC (Alpine), launchd (macOS) and FreeBSD are all open.
 
-취약점을 발견하셨다면 공개 이슈 대신 **cpprhtn@naver.com**으로 보내주세요.
+**Please open pull requests against the `dev` branch** — `main` only receives releases.
 
-## 라이선스
+Found a vulnerability? Please email **cpprhtn@naver.com** rather than opening a public issue.
+
+## License
 
 [Apache-2.0](LICENSE)

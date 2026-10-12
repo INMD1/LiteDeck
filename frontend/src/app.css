@@ -619,7 +619,7 @@
 }
 .segmented button[data-on] {
   background: var(--accent);
-  color: #fff;
+  color: var(--fg-on-accent);
 }
 .segmented button[data-danger]:not([data-on]) {
   color: var(--danger);
@@ -975,7 +975,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: transparent;
-  color: #fff;
+  color: var(--fg-on-accent);
   font-weight: 600;
 }
 button.ghost {
@@ -1167,7 +1167,7 @@ code {
 button.danger {
   background: var(--danger);
   border-color: transparent;
-  color: #fff;
+  color: var(--fg-on-danger);
   font-weight: 600;
 }
 
@@ -1914,6 +1914,125 @@ button.danger {
   padding: var(--sp-2) var(--sp-3);
 }
 
+/* Split panes. Each is placed absolutely from the layout tree rather than
+   nested, so a pane that gets split keeps its terminal (and its scrollback)
+   instead of being rebuilt inside a new wrapper. */
+.term-cell {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+}
+/* Which pane has the keyboard, drawn only when there is more than one. A thin
+   inset ring rather than a border: a border would change the pane's size, and
+   with it the terminal's column count, every time the focus moved. */
+.term-cell[data-focus]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Above the editor `vi` lays over a pane (z-index 2), or four editors side
+     by side give no sign of which one the keyboard is in. */
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.term-cell[data-dead] .term-pane {
+  opacity: 0.6;
+}
+.term-cell-close {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.term-cell:hover .term-cell-close,
+.term-cell-close:focus-visible {
+  opacity: 1;
+}
+/* The line between two panes. Drawn one pixel wide, grabbed six wide. */
+.term-divider {
+  position: absolute;
+  z-index: 3;
+  background: transparent;
+}
+.term-divider::before {
+  content: '';
+  position: absolute;
+  background: var(--border-strong);
+}
+.term-divider[data-dir='row'] {
+  width: 7px;
+  transform: translateX(-3px);
+  cursor: col-resize;
+}
+.term-divider[data-dir='row']::before {
+  inset: 0 3px;
+}
+.term-divider[data-dir='col'] {
+  height: 7px;
+  transform: translateY(-3px);
+  cursor: row-resize;
+}
+.term-divider[data-dir='col']::before {
+  inset: 3px 0;
+}
+.term-divider:hover::before {
+  background: var(--accent);
+}
+.term-tab-count {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+.term-split-btn {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Ligatures. xterm's DOM renderer puts a run of same-styled cells in one span,
+   which is what lets a font's ligatures form at all; this decides whether they
+   may. Off unless asked for: `->` turning into an arrow is a surprise to
+   anybody who did not choose a ligature font on purpose. */
+.term-pane .xterm-rows {
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}
+.term-pane[data-ligatures] .xterm-rows {
+  font-variant-ligatures: normal;
+  font-feature-settings: 'liga' 1, 'calt' 1;
+}
+
+/* The terminal's own settings, opened from the toolbar. */
+.term-settings-anchor {
+  position: relative;
+}
+.term-settings {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+}
+.term-settings .form-grid {
+  margin-bottom: 0;
+}
+.term-settings .checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+}
+
 /* A tab the server cannot serve is still reachable; the panel says why. */
 
 .unavailable {
@@ -2354,7 +2473,10 @@ button.danger {
    로 읽히므로 사이에 제목을 넣어 끊는다. */
 .mcp-dialog {
   width: min(560px, 92vw);
-  max-height: 82vh;
+  /* One height for every tab. Sized by content, the dialog grew and shrank
+     as the tabs changed and, being centred, jumped up and down with it. */
+  height: min(720px, 86vh);
+  max-height: 86vh;
   overflow-y: auto;
 }
 .mcp-toggle {
@@ -3444,6 +3566,10 @@ button.events-unit {
   font-style: normal;
   font-size: var(--text-xs);
   color: var(--fg);
+  /* Half of it sits on the fill and half on the track, and no one text colour
+     reads on both — the neon fill made that obvious. A halo in the track's
+     colour carries it across. */
+  text-shadow: 0 0 2px var(--bg-sunken), 0 0 4px var(--bg-sunken);
 }
 
 
@@ -3990,4 +4116,677 @@ button.events-unit {
 .sync-choices-row {
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
+}
+
+/* The command palette. Top of the window rather than its middle, where the
+   eye already is when somebody reaches for a key, and narrow enough to read a
+   line at a glance. */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg-overlay);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+.palette {
+  width: min(620px, 92vw);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.palette-input {
+  height: 42px;
+  padding: 0 var(--sp-4);
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  outline: none;
+}
+.palette-list {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--sp-1);
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--sp-3);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
+.palette-item[data-sel] {
+  background: var(--bg-selected);
+}
+.palette-group {
+  flex: none;
+  width: 92px;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+.palette-label {
+  flex: 1;
+  min-width: 0;
+}
+.palette-hint {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+.palette-empty {
+  padding: var(--sp-3);
+}
+
+/* ------------------------------------------------------------ AI work graph */
+
+/* The AI view covers every host, so it takes the main column the way a host's
+   tabs do, and gives it back untouched when it closes. */
+.main[data-ai] > .main-head[hidden] {
+  display: none;
+}
+.badge.ai {
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+.ai-live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent-2);
+  box-shadow: var(--glow-accent-2);
+}
+.rail-mini-btn .ai-live-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+.rail-mini-btn {
+  position: relative;
+}
+.rail-ai {
+  flex: 0 0 auto;
+}
+
+.ai-work {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.ai-work.ai-empty .unavailable {
+  margin: var(--sp-6) auto;
+  max-width: 560px;
+}
+.ai-cols {
+  display: grid;
+  /* The detail column's width is set inline from the stored preference. */
+  grid-template-columns: 220px minmax(0, 1fr) 400px;
+  flex: 1;
+  min-height: 0;
+}
+.ai-sessions {
+  border-right: 1px solid var(--border);
+  overflow: auto;
+  min-height: 0;
+}
+.ai-filter {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.ai-filter select {
+  width: 100%;
+}
+.ai-sess {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+.ai-sess:hover {
+  background: var(--bg-hover);
+}
+.ai-sess[data-on] {
+  background: var(--bg-selected);
+  box-shadow: inset 2px 0 0 var(--accent-2);
+}
+.ai-sess-who {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 600;
+}
+.ai-sess-who .badge {
+  margin-left: auto;
+}
+.ai-live {
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+.ai-sess-meta {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+.ai-sess-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.ai-sess-counts .badge {
+  margin-left: 0;
+}
+
+.ai-canvas-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.ai-sessbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.ai-sessbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.ai-sessbar .badge {
+  margin-left: 0;
+}
+.ai-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.ai-report {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.ai-report ul {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: var(--sp-4);
+}
+.ai-note {
+  padding: var(--sp-1) var(--sp-3);
+}
+.ai-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  cursor: grab;
+}
+.ai-canvas[data-panning] {
+  cursor: grabbing;
+  user-select: none;
+}
+/* Takes the scaled size, so the scrollbars match what is drawn. The plane
+   inside keeps its own coordinates and is scaled from its top-left corner. */
+.ai-sizer {
+  position: relative;
+  margin-top: var(--sp-2);
+}
+.ai-plane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.ai-zoom {
+  position: absolute;
+  right: var(--sp-3);
+  bottom: var(--sp-3);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-2);
+}
+.ai-zoom button {
+  min-width: 26px;
+}
+.ai-zoom-pct {
+  min-width: 48px;
+  color: var(--fg-muted);
+}
+.ai-zoom button[data-on] {
+  color: var(--fg);
+  background: var(--bg-selected);
+}
+.ai-node {
+  cursor: pointer;
+}
+.ai-lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border);
+  background: linear-gradient(var(--bg-sunken), transparent 30px);
+}
+.ai-lane-tag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.ai-lane-label {
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  padding: 6px var(--sp-3);
+  font: 600 var(--text-xs) var(--font-label);
+  letter-spacing: var(--label-tracking);
+  /* Not upper-cased: a host's name is case-sensitive, and "CPP" is not what
+     the host list calls it. */
+  color: var(--fg-muted);
+}
+.ai-edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ai-edge {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.ai-edge[data-kind='affects'] {
+  stroke: var(--accent-2);
+  stroke-dasharray: 4 3;
+}
+.ai-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 15px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-align: left;
+}
+.ai-node:hover {
+  border-color: var(--accent);
+}
+.ai-node .ai-glyph {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+}
+.ai-node[data-kind='read'],
+.ai-node[data-kind='reads'] {
+  border-style: dashed;
+  color: var(--fg-muted);
+}
+.ai-node[data-kind='read'] .ai-glyph,
+.ai-node[data-kind='reads'] .ai-glyph {
+  color: var(--fg-muted);
+}
+.ai-node[data-result='ok'][data-kind='file_write'],
+.ai-node[data-result='ok'][data-kind='file_delete'],
+.ai-node[data-result='ok'][data-kind='service'],
+.ai-node[data-result='ok'][data-kind='container'],
+.ai-node[data-result='ok'][data-kind='process'],
+.ai-node[data-result='ok'][data-kind='command'] {
+  border-color: var(--ok-border);
+}
+.ai-node[data-result='failed'] {
+  border-color: var(--danger-border);
+}
+.ai-node[data-result='failed'] .ai-glyph,
+.ai-node[data-result='failed'] .ai-res {
+  color: var(--danger);
+}
+.ai-node[data-result='declined'] {
+  border-color: var(--warn-border);
+}
+.ai-node[data-result='declined'] .ai-glyph,
+.ai-node[data-result='declined'] .ai-res {
+  color: var(--warn);
+}
+.ai-node[data-result='running'] {
+  border-color: var(--accent);
+  box-shadow: var(--glow-accent);
+}
+.ai-node[data-sel] {
+  border-color: var(--accent-2);
+  box-shadow: var(--glow-accent-2), 0 0 0 1px var(--accent-2);
+}
+.ai-res {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.ai-detail {
+  position: relative;
+  border-left: 1px solid var(--border);
+  padding: var(--sp-3);
+  overflow: auto;
+  min-height: 0;
+}
+.ai-detail h4 {
+  margin: 0 0 var(--sp-2);
+  font: 600 var(--text-xs) var(--font-label);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.ai-detail h5 {
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+.ai-target {
+  word-break: break-all;
+  margin-bottom: var(--sp-2);
+}
+.ai-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  color: var(--fg-muted);
+}
+.ai-facts .badge {
+  margin-left: 0;
+}
+.ai-state {
+  margin: var(--sp-2) 0;
+}
+.ai-state .badge {
+  margin-left: 0;
+}
+.ai-state .badge[data-state='revertible'] {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.ai-state .badge[data-state='changed'],
+.ai-state .badge[data-state='offline'] {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.ai-state .badge[data-state='irreversible'] {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.ai-state p {
+  margin: var(--sp-1) 0 0;
+}
+.ai-diff {
+  margin-top: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.ai-pre {
+  margin: 0;
+  padding: var(--sp-2);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--text-xs);
+}
+.ai-reads {
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+}
+.ai-reads li {
+  display: flex;
+  gap: var(--sp-2);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* MCP panel: one token per client. */
+.mcp-client-list {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mcp-clients.mcp-client-list button {
+  border-radius: 4px;
+}
+.mcp-client-list .mcp-client-add {
+  border-style: dashed;
+}
+.mcp-client-form {
+  display: inline-flex;
+  gap: 4px;
+}
+.mcp-client-form .input {
+  height: auto;
+  padding: 3px var(--sp-2);
+  font-size: 12px;
+}
+.mcp-retention {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* ------------------------------------------------------- component layer
+   The 2.4 redesign's shared vocabulary, applied over the rules above rather
+   than rewritten into each of them, so it can be read in one place. Every
+   value is a token: in the light theme the glows are `none` and the labels
+   are the UI face, so this layer changes little there and a lot in the dark.
+
+   - Section labels and column heads speak in one voice: the label face,
+     tracked, upper case.
+   - "You are here" is the accent and a 2px bar on the leading edge — the
+     rail, the host list, a selected row.
+   - The neon glow goes on one thing at a time: the primary action under the
+     pointer or the keyboard, a selected graph node, a connected host's dot. */
+
+.rail-group-label,
+.rail-fold,
+.group-label,
+.mcp-endpoint > label {
+  font-family: var(--font-label);
+  letter-spacing: var(--label-tracking);
+}
+.thead {
+  font-family: var(--font-label);
+  font-size: 10.5px;
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+}
+
+.rail-item[data-on] {
+  color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.rail-mini-btn[data-on] {
+  color: var(--accent);
+}
+.host-row[data-active] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.trow[data-selected] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.dot[data-state='connected'] {
+  box-shadow: var(--glow-ok);
+}
+
+button.primary:hover:not(:disabled),
+button.primary:focus-visible {
+  box-shadow: var(--glow-accent);
+}
+
+/* Badges get an edge of their own colour, so a state reads as a shape as well
+   as a tint — two tints side by side on the dark ground were hard to tell
+   apart. */
+.badge {
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+.badge.ok {
+  border-color: var(--ok-border);
+}
+.badge.warn {
+  border-color: var(--warn-border);
+}
+.badge.danger {
+  border-color: var(--danger-border);
+}
+.badge.ai {
+  border-color: var(--accent-2-border);
+}
+
+/* What an AI client did is the second accent wherever it appears, so the
+   Command Log row and the graph node are visibly the same thing. */
+.cmdlog-row[data-origin='ai'] .cmdlog-marker {
+  color: var(--accent-2);
+}
+
+.dialog {
+  border-color: var(--accent-border);
+}
+
+/* `vi` in a terminal pane: the editor covers the pane, and the shell keeps
+   running underneath — covered rather than hidden, because a hidden terminal
+   measures as zero and would tell the server its window shrank. */
+.term-edit {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+}
+.term-edit > .editor-pane {
+  flex: 1;
+  min-height: 0;
+}
+.editor-only-hint {
+  margin-left: auto;
+  align-self: center;
+  padding: 0 var(--sp-3);
+  white-space: nowrap;
+}
+
+/* A destructive action that sits on a card among ordinary ones. Solid, the
+   neon danger fill made "delete" the loudest thing on every card; the solid
+   button stays where the decision is made — the confirmation dialog. */
+button.danger-outline {
+  background: transparent;
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+button.danger-outline:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+.ai-node[data-restored] {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.ai-res-restored {
+  color: var(--fg-muted);
+}
+.ai-detail-close {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 1;
+}
+
+/* The split buttons, and the shell menu they open on a host with more than
+   one shell. Anchored like the new-tab menu beside it. */
+.term-split-anchor {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+}
+.term-split-anchor .term-shell-menu {
+  left: 0;
+}
+.term-shell-here {
+  margin-left: auto;
+  padding-left: var(--sp-3);
+}
+
+.ai-refusal {
+  margin: var(--sp-2) 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+}
+.ai-refusal p {
+  margin: 0 0 var(--sp-1);
+  color: var(--fg);
+}
+
+.mcp-grant-file {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ai-res-missing {
+  color: var(--fg-muted);
+  font-weight: 400;
 }

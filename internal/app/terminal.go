@@ -204,6 +204,7 @@ func (a *App) OpenTerminal(hostID string, opts TerminalOptions) (TerminalInfo, e
 				return TerminalInfo{}, err
 			}
 			ptyOpts.Line = adapter.WindowsShellCommand(sh, opts.Dir)
+			ptyOpts.ShellKind = windowsShellKind(sh.ID)
 			if exact && sh.ID != "cmd" {
 				title = sh.Label
 			}
@@ -315,7 +316,14 @@ func (a *App) isWindows(hostID string) bool {
 // know where that shell is standing, and for a relative path this is where the
 // terminal gets asked. An absolute path never needs asking, so the common
 // `code /etc/nginx` costs nothing and works even while something is running.
-func (a *App) RevealFromTerminal(termID, arg string) RevealRequest {
+//
+// clear is what empties the line the app took — backspaces, or the shell's
+// own line-editing keys after a Tab completion. Given, it is sent in the same
+// write as the question and the shell is asked even for an absolute path:
+// the answer comes with a fresh prompt, which is what puts the person on a
+// new line, as if the command had run. Empty, nothing is cleared and only a
+// relative path asks.
+func (a *App) RevealFromTerminal(termID, arg, clear string) RevealRequest {
 	a.terminals.mu.Lock()
 	t, ok := a.terminals.all[termID]
 	a.terminals.mu.Unlock()
@@ -327,14 +335,17 @@ func (a *App) RevealFromTerminal(termID, arg string) RevealRequest {
 	if target == "" {
 		target = "."
 	}
-	if !isAbsoluteRemote(target, a.isWindows(t.info.HostID)) {
+	absolute := isAbsoluteRemote(target, a.isWindows(t.info.HostID))
+	if !absolute || clear != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		cwd, err := t.sess.CurrentDir(ctx)
-		if err != nil {
+		cwd, err := t.sess.CurrentDirAfter(ctx, []byte(clear))
+		switch {
+		case err != nil && !absolute:
 			return RevealRequest{HostID: t.info.HostID, Path: arg, Error: err.Error()}
+		case !absolute:
+			target = joinRemote(cwd, target)
 		}
-		target = joinRemote(cwd, target)
 	}
 	// An absolute path skipped the join above and may still be spelled the way
 	// the shell writes it rather than the way SFTP reads it.
@@ -514,6 +525,18 @@ func (a *App) HostShells(hostID string) ([]adapter.Shell, error) {
 }
 
 // pickShell finds the requested shell, falling back to the first one.
+// windowsShellKind names the language a Windows shell speaks, for the one
+// question the app ever asks a terminal (sshcore.PTYOptions.ShellKind).
+func windowsShellKind(id string) string {
+	switch {
+	case strings.HasPrefix(id, "wsl"):
+		return "posix"
+	case id == "powershell" || id == "pwsh":
+		return "powershell"
+	}
+	return "cmd"
+}
+
 func (a *App) pickShell(hostID, id string) (adapter.Shell, bool) {
 	list, err := a.HostShells(hostID)
 	if err != nil || len(list) == 0 {

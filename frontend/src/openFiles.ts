@@ -75,6 +75,19 @@ export function setTreeWidth(px: number) {
   emit()
 }
 
+/** Whether a file is already open on this host — in the file tab, or in a
+ *  terminal pane that `vi` turned into an editor. They share one list, so the
+ *  same file open in both is one document, not two that drift apart. */
+export function isOpen(hostID: string, path: string): boolean {
+  return snapshot(hostID).files.some((f) => f.path === path)
+}
+
+/** The file as the store has it this instant — fresher than anything a
+ *  component captured at its last render. */
+export function getOpenFile(hostID: string, path: string): OpenFile | undefined {
+  return snapshot(hostID).files.find((f) => f.path === path)
+}
+
 export function isDirty(f: OpenFile): boolean {
   return f.doc !== f.base
 }

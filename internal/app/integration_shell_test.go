@@ -33,21 +33,21 @@ func TestRevealFromTerminalResolvesPaths(t *testing.T) {
 
 	// Absolute: answered without asking the shell anything at all, which is why
 	// it works even while something is running in that terminal.
-	if got := a.RevealFromTerminal(term.ID, "/etc"); got.Path != "/etc" || !got.IsDir || got.Error != "" {
+	if got := a.RevealFromTerminal(term.ID, "/etc", ""); got.Path != "/etc" || !got.IsDir || got.Error != "" {
 		t.Errorf("code /etc → %+v", got)
 	}
-	if got := a.RevealFromTerminal(term.ID, "/etc/hostname"); got.IsDir || got.Error != "" {
+	if got := a.RevealFromTerminal(term.ID, "/etc/hostname", ""); got.IsDir || got.Error != "" {
 		t.Errorf("vi /etc/hostname → %+v", got)
 	}
 
 	// `vi test.cpp` on a file that is not there yet still opens an editor.
-	if got := a.RevealFromTerminal(term.ID, "/tmp/fresh.cpp"); !got.New || got.Error != "" {
+	if got := a.RevealFromTerminal(term.ID, "/tmp/fresh.cpp", ""); !got.New || got.Error != "" {
 		t.Errorf("vi on a new file → %+v", got)
 	}
 
 	// Neither the file nor its directory exists: say so rather than navigate
 	// somewhere arbitrary.
-	if got := a.RevealFromTerminal(term.ID, "/nope/nope/nope"); got.Error == "" {
+	if got := a.RevealFromTerminal(term.ID, "/nope/nope/nope", ""); got.Error == "" {
 		t.Errorf("a typo reported no error: %+v", got)
 	}
 }
@@ -62,14 +62,14 @@ func TestRevealFromTerminalAsksTheShellForRelativePaths(t *testing.T) {
 	}
 
 	// `code .`
-	if got := a.RevealFromTerminal(term.ID, ""); got.Path != "/var/log" || !got.IsDir {
+	if got := a.RevealFromTerminal(term.ID, "", ""); got.Path != "/var/log" || !got.IsDir {
 		t.Errorf("code . in /var/log → %+v", got)
 	}
-	if got := a.RevealFromTerminal(term.ID, "."); got.Path != "/var/log" || !got.IsDir {
+	if got := a.RevealFromTerminal(term.ID, ".", ""); got.Path != "/var/log" || !got.IsDir {
 		t.Errorf("code . → %+v", got)
 	}
 	// A relative file below it.
-	if got := a.RevealFromTerminal(term.ID, "../log"); got.Path != "/var/log" || !got.IsDir {
+	if got := a.RevealFromTerminal(term.ID, "../log", ""); got.Path != "/var/log" || !got.IsDir {
 		t.Errorf("code ../log → %+v", got)
 	}
 }
@@ -79,7 +79,7 @@ func TestRevealFromTerminalRefusesAClosedTerminal(t *testing.T) {
 	if err := a.CloseTerminal(term.ID); err != nil {
 		t.Fatalf("CloseTerminal: %v", err)
 	}
-	if got := a.RevealFromTerminal(term.ID, "/etc"); got.Error == "" {
+	if got := a.RevealFromTerminal(term.ID, "/etc", ""); got.Error == "" {
 		t.Error("resolved against a terminal that is gone")
 	}
 }

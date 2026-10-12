@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -80,13 +81,24 @@ const (
 
 // Options configures the listener.
 type Options struct {
-	// Token authorises every request. Required.
+	// Token authorises every request. Required unless Authorise is set.
 	Token string
+	// Authorise, when set, decides whether a bearer token is good and returns
+	// the label it carries — which AI client this is, for the record. It
+	// replaces the single-token comparison so several clients can each have a
+	// token of their own; it never grants one more than another.
+	Authorise func(token string) (label string, ok bool)
 	// Port to listen on. Zero asks the OS for a free one.
 	Port int
 	// OnCall, when set, is invoked for every accepted tool call before it runs.
 	// This is how the app records what the AI asked for in the Command Log.
 	OnCall func(tool string, args map[string]any)
+	// Around, when set, runs every accepted tool call: it is handed the call
+	// and decides when to make it, so it sees both what was asked and what came
+	// back. The app records the AI's work with it — the before half of that is
+	// what OnCall already gave, and the after half is what a graph of the work
+	// needs (did it succeed, what did it touch).
+	Around func(ctx context.Context, tool string, args map[string]any, call Call) (any, error)
 	// Limiter, when set, gates calls. See NewLimiter.
 	Limiter *Limiter
 }
@@ -95,6 +107,7 @@ type Options struct {
 type Listener struct {
 	srv  *Server
 	opts Options
+	idle *sessions
 
 	mu   sync.Mutex
 	http *http.Server
@@ -116,11 +129,11 @@ func NewToken() (string, error) {
 
 // Serve starts listening on loopback and returns the bound address.
 func (s *Server) Serve(opts Options) (*Listener, string, error) {
-	if opts.Token == "" {
+	if opts.Token == "" && opts.Authorise == nil {
 		return nil, "", errors.New("mcp: a token is required")
 	}
 
-	l := &Listener{srv: s, opts: opts}
+	l := &Listener{srv: s, opts: opts, idle: newSessions()}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", l.handle)
@@ -188,7 +201,8 @@ func (l *Listener) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !l.authorised(r) {
+	client, ok := l.authorised(r)
+	if !ok {
 		// No detail. An unauthorised caller learns whether the endpoint exists
 		// and nothing else.
 		w.Header().Set("WWW-Authenticate", `Bearer realm="litedeck"`)
@@ -198,7 +212,7 @@ func (l *Listener) handle(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPost:
-		l.post(w, r)
+		l.post(w, r, client)
 	case http.MethodGet, http.MethodDelete:
 		// The spec allows a server to decline the server-to-client stream. This
 		// one has nothing to push: tools answer in the POST that asked.
@@ -209,16 +223,28 @@ func (l *Listener) handle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (l *Listener) post(w http.ResponseWriter, r *http.Request) {
+func (l *Listener) post(w http.ResponseWriter, r *http.Request, client string) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
 	if err != nil {
 		http.Error(w, "could not read body", http.StatusBadRequest)
 		return
 	}
 
+	// The session this request belongs to. An initialize starts one and tells
+	// the client its id; everything after it carries that id back. A client
+	// that keeps no session id is grouped by idleness instead.
+	session := r.Header.Get(SessionHeader)
+	if isInitialize(body) {
+		session = newSessionID()
+		w.Header().Set(SessionHeader, session)
+	} else if session == "" {
+		session = l.idle.forClient(client)
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), callTimeout)
 	defer cancel()
-	ctx = withHooks(ctx, l.opts.OnCall, l.opts.Limiter)
+	ctx = withHooks(ctx, l.opts)
+	ctx = WithCaller(ctx, Caller{Client: client, Session: session})
 
 	reply := l.srv.Handle(ctx, body)
 	if reply == nil {
@@ -232,15 +258,33 @@ func (l *Listener) post(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(reply)
 }
 
-func (l *Listener) authorised(r *http.Request) bool {
+// authorised checks the bearer token and returns the label of the client that
+// holds it.
+func (l *Listener) authorised(r *http.Request) (string, bool) {
 	header := r.Header.Get("Authorization")
 	token, found := strings.CutPrefix(header, "Bearer ")
-	if !found {
-		return false
+	if !found || token == "" {
+		return "", false
+	}
+	if l.opts.Authorise != nil {
+		return l.opts.Authorise(token)
 	}
 	// Constant time: the token is a secret, and a comparison that returns early
 	// leaks its prefix to anything that can time requests to loopback.
-	return subtle.ConstantTimeCompare([]byte(token), []byte(l.opts.Token)) == 1
+	if subtle.ConstantTimeCompare([]byte(token), []byte(l.opts.Token)) == 1 {
+		return "", true
+	}
+	return "", false
+}
+
+// isInitialize reports whether a JSON-RPC body is an initialize request. Read
+// cheaply and without trusting it: a body that does not parse is not one, and
+// the server proper reports the parse error.
+func isInitialize(body []byte) bool {
+	var m struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal(body, &m) == nil && m.Method == "initialize"
 }
 
 // originAllowed accepts requests with no Origin — which is what a native MCP
@@ -261,13 +305,18 @@ func originAllowed(origin string) bool {
 
 type hookKey struct{}
 
+// Call runs the tool a wrapper was handed, with whatever context the wrapper
+// chooses to give it.
+type Call func(ctx context.Context) (any, error)
+
 type hooks struct {
 	onCall  func(tool string, args map[string]any)
+	around  func(context.Context, string, map[string]any, Call) (any, error)
 	limiter *Limiter
 }
 
-func withHooks(ctx context.Context, onCall func(string, map[string]any), lim *Limiter) context.Context {
-	return context.WithValue(ctx, hookKey{}, hooks{onCall: onCall, limiter: lim})
+func withHooks(ctx context.Context, o Options) context.Context {
+	return context.WithValue(ctx, hookKey{}, hooks{onCall: o.OnCall, around: o.Around, limiter: o.Limiter})
 }
 
 func hooksFrom(ctx context.Context) hooks {

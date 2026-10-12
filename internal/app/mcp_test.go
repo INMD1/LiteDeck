@@ -1390,3 +1390,65 @@ func TestStrictPolicyDoesNotExpire(t *testing.T) {
 		t.Error("bypass was stored with no expiry — a relaxation must not outlive its session")
 	}
 }
+
+// A tool that is switched off on a host is a question for the person, not a
+// dead end. The first person to meet the old flat refusal asked why the agent
+// could not delete a file when everything else went through: the switch was in
+// a panel they had no reason to open.
+func TestASwitchedOffToolAsksThePerson(t *testing.T) {
+	a := appWithSettings(t)
+	seedSharedHost(t, a)
+	// Bypass is about being interrupted, not about what may be done: it must
+	// not let a switched-off tool through without asking.
+	a.SetMCPWritePolicy("h1", WriteBypass, 30)
+
+	raised := make(chan MCPWritePrompt, 4)
+	a.emit = func(event string, payload any) {
+		if event == "prompt:mcpwrite" {
+			if p, ok := payload.(MCPWritePrompt); ok {
+				raised <- p
+			}
+		}
+	}
+	tool := toolNamed(t, a, "run_command")
+	call := func() error {
+		_, err := tool.Handler(context.Background(), map[string]any{"hostId": "h1", "command": "id"})
+		return err
+	}
+	// Bounded waits throughout: a regression that stops asking must fail here,
+	// not hang the suite.
+	answer := func(yes bool) {
+		go func() {
+			select {
+			case p := <-raised:
+				if p.Grant != "exec" || !strings.Contains(p.Command, "id") {
+					t.Errorf("the dialog did not ask for the switch with the command in view: %+v", p)
+				}
+				_ = a.AnswerMCPWrite(p.ID, yes)
+			case <-time.After(5 * time.Second):
+				t.Error("no dialog was raised for a switched-off tool")
+			}
+		}()
+	}
+
+	// No: refused, and the model is told not to retry.
+	answer(false)
+	if err := call(); err == nil || !strings.Contains(err.Error(), "chose not to allow") {
+		t.Errorf("declined: %v", err)
+	}
+	// Yes, this once: past the switch (it then fails for want of a connection,
+	// which is the next thing in the way, not the switch).
+	answer(true)
+	if err := call(); err != nil && strings.Contains(err.Error(), "switched off") {
+		t.Errorf("allowed once but still refused: %v", err)
+	}
+	// This once did not turn the switch on.
+	if a.mcpExecAllowed("h1") {
+		t.Error("allowing once turned the switch on")
+	}
+	// Nobody answers: refused, saying so.
+	defer WriteApprovalTimeoutForTest(30 * time.Millisecond)()
+	if err := call(); err == nil || !strings.Contains(err.Error(), "nobody answered") {
+		t.Errorf("unanswered: %v", err)
+	}
+}

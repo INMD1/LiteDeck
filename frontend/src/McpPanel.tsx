@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Scrim } from './Scrim'
 import {
+  AddMCPClient,
+  RemoveMCPClient,
+  SetMCPRetention,
   MCPChanges,
   MCPState,
   RestoreMCPChange,
@@ -54,6 +57,9 @@ export function McpPanel({
   const [copied, setCopied] = useState(false)
   const [reveal, setReveal] = useState(false)
   const [client, setClient] = useState<Client>('claude')
+  // Whose token is on screen: the default one, or a named client's.
+  const [who, setWho] = useState<string>('default')
+  const [adding, setAdding] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -89,7 +95,37 @@ export function McpPanel({
     }
   }
 
-  const snippet = client === 'codex' ? state?.codexSnippet : state?.snippet
+  const named = state?.clients?.find((c) => c.id === who)
+  const token = named ? named.token : state?.token
+  const snippet = named
+    ? client === 'codex'
+      ? named.codexSnippet
+      : named.snippet
+    : client === 'codex'
+      ? state?.codexSnippet
+      : state?.snippet
+
+  const addClient = async () => {
+    const label = (adding ?? '').trim()
+    if (!label) return
+    setBusy(true)
+    try {
+      const before = new Set((state?.clients ?? []).map((c) => c.id))
+      const next = await AddMCPClient(label)
+      setState(next)
+      if (next.error) onError(next.error)
+      else {
+        const made = next.clients.find((c) => !before.has(c.id))
+        if (made) setWho(made.id)
+        setAdding(null)
+        setReveal(true)
+      }
+    } catch (e) {
+      onError(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const copy = async () => {
     if (!snippet) return
@@ -198,23 +234,101 @@ export function McpPanel({
                   )}
                 </div>
 
+                {/* One token per AI client, so the work graph can say which one
+                    did something. Names are for the record only — every token
+                    reaches exactly what the default one does. */}
+                <div className="mcp-endpoint">
+                  <label className="muted small">{t('AI 클라이언트')}</label>
+                  <div className="mcp-clients mcp-client-list">
+                    <button
+                      data-on={who === 'default' || undefined}
+                      onClick={() => {
+                        setWho('default')
+                        setCopied(false)
+                      }}
+                    >
+                      {t('기본')}
+                    </button>
+                    {(state.clients ?? []).map((c) => (
+                      <button
+                        key={c.id}
+                        data-on={who === c.id || undefined}
+                        onClick={() => {
+                          setWho(c.id)
+                          setCopied(false)
+                        }}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                    {adding === null ? (
+                      <button className="mcp-client-add" onClick={() => setAdding('')}>
+                        + {t('클라이언트 추가')}
+                      </button>
+                    ) : (
+                      <form
+                        className="mcp-client-form"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void addClient()
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          className="input"
+                          value={adding}
+                          maxLength={60}
+                          placeholder={t('예: Claude Code - 맥북')}
+                          onChange={(e) => setAdding(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              e.stopPropagation()
+                              setAdding(null)
+                            }
+                          }}
+                        />
+                        <button className="primary small-btn" disabled={busy || !adding.trim()}>
+                          {t('만들기')}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                  <span className="muted small">
+                    {t('클라이언트마다 토큰을 따로 주면 AI 작업 기록에 어느 쪽이 한 일인지 남습니다. 권한은 모두 같습니다.')}
+                  </span>
+                </div>
+
                 <div className="mcp-endpoint">
                   <label className="muted small">{t('토큰')}</label>
                   <code className="mono selectable ellipsis">
-                    {reveal ? state.token : '•'.repeat(24)}
+                    {reveal ? token : '•'.repeat(24)}
                   </code>
                   <div className="mcp-row">
                     <button className="ghost small-btn" onClick={() => setReveal(!reveal)}>
                       {reveal ? t('가리기') : t('보기')}
                     </button>
-                    <button
-                      className="ghost small-btn"
-                      disabled={busy}
-                      onClick={() => void apply(() => RotateMCPToken())}
-                      title={t('새 토큰을 만들고 이전 토큰을 무효화합니다')}
-                    >
-                      {t('토큰 재발급')}
-                    </button>
+                    {named ? (
+                      <button
+                        className="ghost small-btn"
+                        disabled={busy}
+                        onClick={() => {
+                          setWho('default')
+                          void apply(() => RemoveMCPClient(named.id))
+                        }}
+                        title={t('이 토큰은 바로 쓸 수 없게 됩니다')}
+                      >
+                        {t('클라이언트 삭제')}
+                      </button>
+                    ) : (
+                      <button
+                        className="ghost small-btn"
+                        disabled={busy}
+                        onClick={() => void apply(() => RotateMCPToken())}
+                        title={t('새 토큰을 만들고 이전 토큰을 무효화합니다')}
+                      >
+                        {t('토큰 재발급')}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -361,8 +475,40 @@ export function McpPanel({
                 they have, and that nothing of this is on the server. Why the
                 feature exists is not one of them. */}
             <p className="muted small">
-              {t('변경 전 내용을 이 컴퓨터에 24시간 보관합니다. 서버에는 아무것도 남기지 않습니다.')}
+              {t('변경 전후 내용을 이 컴퓨터에 {days}일 보관합니다. 서버에는 아무것도 남기지 않습니다.', {
+                days: state?.keepDays ?? 7,
+              })}
             </p>
+            <div className="mcp-row mcp-retention">
+              <label className="muted small">{t('보관 기간')}</label>
+              <select
+                disabled={busy || !state}
+                value={state?.keepDays ?? 7}
+                onChange={(e) =>
+                  void apply(() => SetMCPRetention(Number(e.target.value), state?.keepMB ?? 256))
+                }
+              >
+                {[1, 3, 7, 14, 30, 90].map((d) => (
+                  <option key={d} value={d}>
+                    {t('{n}일', { n: d })}
+                  </option>
+                ))}
+              </select>
+              <label className="muted small">{t('최대 용량')}</label>
+              <select
+                disabled={busy || !state}
+                value={state?.keepMB ?? 256}
+                onChange={(e) =>
+                  void apply(() => SetMCPRetention(state?.keepDays ?? 7, Number(e.target.value)))
+                }
+              >
+                {[64, 256, 1024, 4096].map((mb) => (
+                  <option key={mb} value={mb}>
+                    {mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`}
+                  </option>
+                ))}
+              </select>
+            </div>
             {changes.length === 0 && (
               <div className="placeholder small">{t('아직 없습니다.')}</div>
             )}

@@ -203,7 +203,7 @@ func TestUnknownEntry(t *testing.T) {
 
 // A copy nobody looked at within a day is not being kept for anybody. Somebody
 // who set an agent working overnight checks the result the next morning.
-func TestEntriesExpireAfterADay(t *testing.T) {
+func TestEntriesExpireAfterTheWindow(t *testing.T) {
 	dir := t.TempDir()
 	s := Open(dir)
 
@@ -214,7 +214,7 @@ func TestEntriesExpireAfterADay(t *testing.T) {
 	s.mu.Lock()
 	for i := range s.entries {
 		if s.entries[i].ID == old.ID {
-			s.entries[i].At = time.Now().Add(-MaxAge - time.Minute)
+			s.entries[i].At = time.Now().Add(-DefaultMaxAge - time.Minute)
 		}
 	}
 	s.mu.Unlock()
@@ -236,7 +236,7 @@ func TestExpiryAppliesWithoutAnyNewWrites(t *testing.T) {
 	e, _ := s.Record("h1", "/etc/a.conf", ActionWrite, []byte("a"), false)
 
 	s.mu.Lock()
-	s.entries[0].At = time.Now().Add(-MaxAge - time.Second)
+	s.entries[0].At = time.Now().Add(-DefaultMaxAge - time.Second)
 	s.mu.Unlock()
 
 	if len(s.List("")) != 0 {
@@ -284,7 +284,7 @@ func blobs(t *testing.T, dir string) []string {
 	return m
 }
 
-// The documented promise is that copies clear themselves after 24 hours. Until
+// The documented promise is that copies clear themselves after the retention window (a week by default). Until
 // this, expiry only ran when an AI made another change or somebody opened the
 // panel — both of which stop the moment a user is done with the integration,
 // which is precisely when it matters. What is held is the previous contents of
@@ -300,7 +300,7 @@ func TestOpenExpiresCopiesWithoutTheFeatureBeingUsedAgain(t *testing.T) {
 		t.Fatalf("the copy was not written")
 	}
 
-	age(t, dir, old.ID, MaxAge+time.Hour)
+	age(t, dir, old.ID, DefaultMaxAge+time.Hour)
 
 	// A fresh launch, and nothing else — no Record, no List.
 	reopened := Open(dir)
@@ -322,7 +322,7 @@ func TestOpenKeepsCopiesInsideTheWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record: %v", err)
 	}
-	age(t, dir, e.ID, MaxAge/2)
+	age(t, dir, e.ID, DefaultMaxAge/2)
 
 	if got := Open(dir).List("h1"); len(got) != 1 {
 		t.Fatalf("a copy inside the window was dropped: %v", got)
@@ -352,7 +352,7 @@ func TestListPersistsWhatItExpired(t *testing.T) {
 	s.mu.Lock()
 	for i := range s.entries {
 		if s.entries[i].ID == stale.ID {
-			s.entries[i].At = time.Now().Add(-MaxAge - time.Hour)
+			s.entries[i].At = time.Now().Add(-DefaultMaxAge - time.Hour)
 		}
 	}
 	s.mu.Unlock()
@@ -390,7 +390,7 @@ func TestOpenSweepsBlobsTheIndexDoesNotName(t *testing.T) {
 	}
 	// Aged past the window. A fresh one is deliberately left alone — see the
 	// test below.
-	old := time.Now().Add(-MaxAge - time.Hour)
+	old := time.Now().Add(-DefaultMaxAge - time.Hour)
 	if err := os.Chtimes(orphan, old, old); err != nil {
 		t.Fatalf("age orphan: %v", err)
 	}
@@ -424,5 +424,86 @@ func TestOpenLeavesAFreshUnnamedBlobAlone(t *testing.T) {
 
 	if _, err := os.Stat(inFlight); err != nil {
 		t.Errorf("a copy that was still being written was swept: %v", err)
+	}
+}
+
+// What a change wrote is kept beside what it replaced, so the work graph can
+// show the change as a diff. Both are private: either can hold a secret.
+func TestAfterContentsAreKeptPrivately(t *testing.T) {
+	dir := t.TempDir()
+	s := Open(dir)
+	e, _ := s.Record("h1", "/etc/app.env", ActionWrite, []byte("A=1\n"), false)
+	if err := s.RecordAfter(e.ID, []byte("A=2\n")); err != nil {
+		t.Fatalf("record after: %v", err)
+	}
+	got, ok := s.After(e.ID)
+	if !ok || string(got) != "A=2\n" {
+		t.Fatalf("after = %q, %v", got, ok)
+	}
+	info, err := os.Stat(filepath.Join(dir, "ai-history", e.ID+".after.blob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("after copy is %v, want 0600", info.Mode().Perm())
+	}
+	// And it survives a restart like the rest of the entry.
+	if got, ok := Open(dir).After(e.ID); !ok || string(got) != "A=2\n" {
+		t.Errorf("after a restart: %q, %v", got, ok)
+	}
+}
+
+// A restored change stays on record with its copies, marked, until it ages out.
+func TestRestoredChangesKeepTheirCopies(t *testing.T) {
+	s := Open(t.TempDir())
+	e, _ := s.Record("h1", "/etc/x", ActionWrite, []byte("old"), false)
+	_ = s.RecordAfter(e.ID, []byte("new"))
+	if err := s.MarkRestored(e.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := s.Get(e.ID)
+	if !ok || !got.Restored {
+		t.Fatalf("entry after restore: %+v %v", got, ok)
+	}
+	if b, err := s.Contents(e.ID); err != nil || string(b) != "old" {
+		t.Errorf("before copy after restore: %q %v", b, err)
+	}
+}
+
+// Shortening the window applies at once, and takes both copies with it.
+func TestShorterWindowDropsOlderChanges(t *testing.T) {
+	dir := t.TempDir()
+	s := Open(dir)
+	e, _ := s.Record("h1", "/etc/x", ActionWrite, []byte("old"), false)
+	_ = s.RecordAfter(e.ID, []byte("new"))
+	s.mu.Lock()
+	s.entries[0].At = time.Now().Add(-3 * 24 * time.Hour)
+	s.mu.Unlock()
+
+	s.SetLimits(7*24*time.Hour, 0)
+	if _, ok := s.Get(e.ID); !ok {
+		t.Fatal("a three-day-old change fell out of a seven-day window")
+	}
+	s.SetLimits(24*time.Hour, 0)
+	if _, ok := s.Get(e.ID); ok {
+		t.Fatal("a three-day-old change survived a one-day window")
+	}
+	if left := blobs(t, dir); len(left) != 0 {
+		t.Errorf("copies left behind: %v", left)
+	}
+}
+
+// The size cap counts what was written as well as what was replaced.
+func TestSizeCapCountsBothCopies(t *testing.T) {
+	s := Open(t.TempDir())
+	s.SetLimits(0, 10)
+	a, _ := s.Record("h1", "/a", ActionWrite, []byte("12345"), false)
+	_ = s.RecordAfter(a.ID, []byte("12345"))
+	b, _ := s.Record("h1", "/b", ActionWrite, []byte("12"), false)
+	if _, ok := s.Get(a.ID); ok {
+		t.Error("the oldest change should have gone to make room: 5+5+2 is over 10")
+	}
+	if _, ok := s.Get(b.ID); !ok {
+		t.Error("the newest change was dropped")
 	}
 }

@@ -1,6 +1,6 @@
 # Features in detail
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 ## At a glance
 
@@ -14,7 +14,7 @@
 | **Network** | Interfaces and listening ports. **Flags which ones are reachable from outside**. Reviews the sshd configuration |
 | **Sessions** | Who is logged in to this server, and cutting any of them off. Successful logins also appear in the security tab, where **addresses not seen before** are marked. **Login history and failed attempts** — successes from wtmp, failures from the journal. Failures run into the thousands a day, so they arrive summarised by IP and account rather than listed |
 | **Scheduled jobs** | systemd timers. Next and last run |
-| **Terminal** | xterm.js PTY, multiple tabs. `code .` and `vi foo.conf` are **caught by the app** and open in the file tab. They are never sent to the server, so neither VS Code nor vi needs to exist there |
+| **Terminal** | Multiple tabs, and a tab **split side by side or top and bottom**. Colour themes, font, line spacing and ligatures, plus a `⇧⌘P` command palette. `code .` is **caught by the app** and opens the file tab; `vi foo.conf` opens the app's editor **right in that pane**. Neither is sent to the server, so neither VS Code nor vi needs to exist there |
 | **Monitoring** | The bar is the glance, the monitoring tab is a dashboard. CPU is **split into user, kernel, IO wait and steal** — 90% that is all IO wait means the disk, and all steal means the hypervisor. **A core die**, memory with cache and buffers separated out, and NVIDIA cards add **utilisation, fan, temperature and VRAM** (nvidia-smi) |
 | **Infrastructure metrics** | **Inodes** (a disk with room that cannot create a file), **network error and drop** counters, **disk I/O**, **PSI** — how long things waited rather than how much was used — runnable and blocked counts, open descriptors. All of it read from `/proc` and `df`, so **there is still nothing installed on the server** |
 | **Trends** | CPU, memory and GPU over time for as long as the app was watching. **Stretches it did not see are drawn as breaks**, never joined up |
@@ -25,6 +25,7 @@
 | **Command Log** | **Every command the GUI runs, live.** Click to copy |
 | **Settings sync** | Export your host list and approval policies as **one encrypted file** and read it on another machine. Put it in Google Drive, Dropbox or on a stick — no account, no server. Passwords, private keys and sudo passwords are **not in the file**. Anything that loosens a policy is applied only after a person on the receiving machine confirms it |
 | **MCP** | Claude Code and Claude Desktop read and change your servers through this app. Per-server opt-in, changes are approved, **and can be undone** |
+| **AI work** | What MCP clients did, **as a graph per session** — a band per host, time left to right, a file change linked to the service restart it led to. A node opens its diff and undo; **a whole session can be undone**. Give each client its own token and the graph says who did it ([more](mcp.en.md#the-ai-work-screen)) |
 | **Connecting** | Password, key, agent, 2FA. Import from `~/.ssh/config`. One **ProxyJump** hop |
 | **Language** | English and Korean. Uses whichever you last chose, or your OS language if you never have. Switch with `KO`/`EN` at the bottom of the sidebar |
 | **Theme** | Light and dark. Starts on whichever you last picked, or on the OS setting if you never have. Changed below the sidebar |
@@ -154,8 +155,18 @@ server (hundreds of MB), or you live in the server's `vi` through a terminal. Li
   quitting costs nothing
 
 Typing `code .` or `vi foo.conf` in the terminal is **caught by the app before the line reaches
-the server**, and the file tab opens instead. The server never learns this feature exists. So
-neither VS Code nor vi has to be installed there, and equally **nothing opens on the server side.**
+the server**. The server never learns this feature exists. So neither VS Code nor vi has to be
+installed there, and equally **nothing opens on the server side.**
+
+- **`code .`** opens a project, so it goes to the file tab, tree and editor together
+- **`vi file`** turns that terminal pane into the editor, and closing it (`⌘W` / `Ctrl+Shift+W`)
+  gives the same shell back — it kept running underneath. With several terminals open, the edit
+  stays with the pane it was typed in. A file already open in the file tab is the same document
+  there, and stays open there when the pane closes
+- **Lines completed with Tab or recalled with ↑ are caught too**: at Enter the app reads back the
+  line the shell drew. When it cannot be sure — a list of Tab candidates got in the way — the line
+  goes to the server as typed, and the real vi opens there. `vim`, and lines like `cd x && vi f`,
+  are deliberately left alone
 
 <p align="center">
   <img src="media/05-editor.gif" width="820" alt="Open a file, edit it, see the diff before saving">
@@ -172,6 +183,43 @@ the server.
 > For contrast: VS Code Remote-SSH installs a server on your server. `vscode-server` eating
 > memory on a small VPS is a well-known problem. If you want a real remote IDE, that is the right
 > tool. **If you do not want to upload hundreds of megabytes to change one config file**, this is.
+
+## Terminal: tabs, splits, and making it yours
+
+**Split a tab.** The ◫ and ⊟ buttons in the toolbar, or a shortcut, split the current pane
+side by side or top and bottom. Drag the line between panes to resize; close one with the × at its
+top right. Where a host has more than one shell — Windows — the buttons ask which, so one tab can
+hold cmd, PowerShell and WSL side by side; the shortcuts split into the pane's own shell.
+
+| | macOS | Windows · Linux |
+|---|---|---|
+| Split side by side | ⌘D | Alt+Shift+= |
+| Split top and bottom | ⌘⇧D | Alt+Shift+- |
+| Close this pane | ⌘W | Ctrl+Shift+W |
+| Move between panes | ⌘⌥ + arrow | Alt + arrow |
+| New terminal tab | ⌘T | Ctrl+Shift+T |
+| Command palette | ⇧⌘P | Ctrl+Shift+P |
+
+Each pane opens **one more shell on the SSH connection that is already open** — no second login.
+So panes share the server's channel limit: **five terminal panes and log windows together** per
+server, and past that a split is refused with an error that says why. sshd's default `MaxSessions` is
+10, and the rest belongs to file transfers and commands.
+
+> **A pane's shell does not stay on the server.** Close the pane or lose the connection and that
+> shell ends — this is not tmux. Reopen the app and **the same layout** comes back with fresh shells.
+
+**Make it yours.** `Aa` in the toolbar sets the colour theme (follow the app · Tokyo Night · Dracula ·
+Solarized Dark/Light), the font, its size, the line spacing, ligatures, and copy-on-select. A URL in
+the output opens in your browser with ⌘-click (Ctrl-click on Windows and Linux), and a path such as
+`/etc/nginx/nginx.conf` opens in the app's editor the same way.
+
+**Command palette.** `⇧⌘P` (Ctrl+Shift+P), then a few letters, finds and runs host switching,
+moving between screens, new splits and theme changes — from inside a terminal too. It finds things
+by their Korean and their English names alike.
+
+> **The engine is still xterm.js.** Switching to the Ghostty engine (ghostty-web) was tried, and not
+> done: while Korean is being typed, **the syllable being composed does not appear on screen**.
+> Committed text was fine.
 
 ## Filtering the tree by name
 

@@ -6,6 +6,7 @@ import { detectLanguage } from './editorLanguage'
 import { ReadTextFile, SaveTextFile, type TextFile } from './ipc'
 import {
   closeFile,
+  getOpenFile,
   isDirty,
   markSaved,
   rebase,
@@ -46,6 +47,9 @@ export function EditorPane({
   onError,
   onSaved,
   onDownload,
+  only,
+  keepOpen,
+  onLeave,
 }: {
   hostID: string
   /** Whether the file tab is the one on screen. The save shortcut is a window
@@ -57,8 +61,22 @@ export function EditorPane({
   onSaved: (path: string) => void
   /** A read-only tab's only action: get the file rather than look at it. */
   onDownload: (path: string) => void
+  /** One file and no tab strip — the editor `vi` opens inside a terminal
+   *  pane. Closing it hands the pane back to the shell through onLeave. */
+  only?: string
+  /** The file was already open in the file tab before `vi` asked for it, so
+   *  leaving the pane leaves it open there: one document, two views of it. */
+  keepOpen?: boolean
+  onLeave?: () => void
 }) {
-  const { files, active } = useOpenFiles(hostID)
+  const { files: all, active: activeAll } = useOpenFiles(hostID)
+  const files = only ? all.filter((f) => f.path === only) : all
+  const active = only ?? activeAll
+  const rootRef = useRef<HTMLDivElement>(null)
+  const onlyRef = useRef(only)
+  onlyRef.current = only
+  // Assigned below the early return; the key handler reaches it through this.
+  const requestCloseRef = useRef<(f: OpenFile) => void>(() => {})
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -97,6 +115,9 @@ export function EditorPane({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!visibleRef.current) return
+      // In a pane, only when the keyboard is in this pane: two terminals can
+      // each hold an editor, and ⌘S belongs to the one being typed in.
+      if (onlyRef.current && !rootRef.current?.contains(document.activeElement)) return
       if (e.defaultPrevented || !matches(e, 'save')) return
       const f = latest.current
       if (!f) return
@@ -109,6 +130,46 @@ export function EditorPane({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // A dialog took the keyboard — the diff before a save, the conflict, the
+  // close question. When it goes, the keyboard comes back to the document;
+  // left on the page, the next keystroke (⌘W, or simply typing on) reached
+  // nothing at all.
+  const hadDialog = useRef(false)
+  useEffect(() => {
+    if (confirm) {
+      hadDialog.current = true
+      return
+    }
+    if (!hadDialog.current) return
+    hadDialog.current = false
+    rootRef.current?.querySelector<HTMLElement>('.cm-content')?.focus()
+  }, [confirm])
+
+  // In a pane the editor arrives because somebody typed `vi` and pressed Enter:
+  // the keyboard goes straight into the document, as it would in vi.
+  const hasFile = !!file
+  useEffect(() => {
+    if (!only || !hasFile) return
+    const id = window.setTimeout(() => {
+      // Only if the keyboard has not moved on. The first editor loads its code
+      // on demand, and somebody who clicked another pane in the meantime had
+      // their next line typed into this file instead.
+      const cell = rootRef.current?.closest('.term-cell')
+      const a = document.activeElement
+      if (a && a !== document.body && !(cell && cell.contains(a))) return
+      rootRef.current?.querySelector<HTMLElement>('.cm-content')?.focus()
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [only, hasFile])
+
+  // Closed from somewhere else — the file tab, or a delete in the tree — while
+  // this pane still showed it. The pane goes back to the shell.
+  const leaveRef = useRef(onLeave)
+  leaveRef.current = onLeave
+  useEffect(() => {
+    if (only && !file) leaveRef.current?.()
+  }, [only, file])
 
   if (!file) return null
 
@@ -177,6 +238,12 @@ export function EditorPane({
   }
 
   const requestClose = (f: OpenFile) => {
+    // Still open in the file tab: nothing is lost by stepping out of the pane,
+    // so there is nothing to ask.
+    if (only && keepOpen) {
+      onLeave?.()
+      return
+    }
     if (isDirty(f)) {
       setConfirm({ kind: 'close', file: f })
       return
@@ -184,10 +251,31 @@ export function EditorPane({
     closeFile(hostID, f.path)
   }
 
+  // ⌘W / Ctrl+Shift+W closes the editor, not the terminal under it — the same
+  // key closes a pane when the shell has the keyboard, and in a pane the editor
+  // is what the person is looking at.
+  requestCloseRef.current = requestClose
+
   const lang = detectLanguage(file.path)
 
   return (
-    <div className="editor-pane">
+    <div
+      className="editor-pane"
+      data-only={only ? '' : undefined}
+      ref={rootRef}
+      onKeyDown={(e) => {
+        if (!only) return
+        const mac = getPlatform().isMac
+        const close = mac
+          ? e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'w'
+          : e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'w'
+        if (!close) return
+        e.preventDefault()
+        e.stopPropagation()
+        const f = latest.current
+        if (f) requestCloseRef.current(f)
+      }}
+    >
       <div className="editor-tabs" role="tablist">
         {files.map((f) => (
           <button
@@ -217,6 +305,11 @@ export function EditorPane({
             </span>
           </button>
         ))}
+        {only && (
+          <span className="editor-only-hint muted small">
+            {t('닫으면 셸로 돌아갑니다 ({key})', { key: getPlatform().isMac ? '⌘W' : 'Ctrl+Shift+W' })}
+          </span>
+        )}
       </div>
 
       {file.preview ? (
@@ -227,8 +320,14 @@ export function EditorPane({
           openPaths={files.map((f) => f.path)}
           value={file.doc}
           onChange={(doc) => setDoc(hostID, file.path, doc)}
-          onSave={() => latest.current && requestSave(latest.current)}
+          onSave={() => {
+            // From the store, not from `latest`: the editor has just flushed
+            // the last keystrokes into it, and this render has not seen them.
+            const f = latest.current && getOpenFile(hostID, latest.current.path)
+            if (f) requestSave(f)
+          }}
           onCursor={(line, col) => setCursor({ line, col })}
+          grabFocus={!only}
         />
       )}
 

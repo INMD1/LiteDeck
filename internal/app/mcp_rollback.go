@@ -33,6 +33,9 @@ func (a *App) MCPChanges(hostID string) []MCPChange {
 	entries := a.rollback.List(hostID)
 	out := make([]MCPChange, 0, len(entries))
 	for _, e := range entries {
+		if e.Restored {
+			continue
+		}
 		out = append(out, MCPChange{
 			ID: e.ID, HostID: e.HostID, Path: e.Path,
 			At: e.At.Format("2006-01-02 15:04:05"), Action: e.Action,
@@ -56,6 +59,9 @@ func (a *App) RestoreMCPChange(id string) ActionResult {
 	if !ok {
 		return failResult(i18n.Errorf("되돌릴 기록을 찾을 수 없습니다: %s", id))
 	}
+	if entry.Restored {
+		return failResult(i18n.Errorf("이미 되돌린 변경입니다"))
+	}
 	if !entry.Undoable() {
 		return failResult(i18n.Errorf("%s는 사본을 남기기에 너무 커서 되돌릴 수 없습니다", entry.Path))
 	}
@@ -65,6 +71,7 @@ func (a *App) RestoreMCPChange(id string) ActionResult {
 		// It did not exist before, so putting it back means removing it.
 		res := a.DeletePaths(entry.HostID, []string{entry.Path}, false, entry.Path)
 		if !res.OK {
+			a.recordRestore(id, entry.HostID, entry.Path, fmt.Errorf("%s", res.Error))
 			return res
 		}
 	} else {
@@ -74,16 +81,19 @@ func (a *App) RestoreMCPChange(id string) ActionResult {
 		}
 		res := a.SaveTextFile(entry.HostID, SaveRequest{Path: entry.Path, Content: string(body)})
 		if !res.OK {
+			a.recordRestore(id, entry.HostID, entry.Path, fmt.Errorf("%s", res.Error))
 			return res.ActionResult
 		}
 		inPlace = res.InPlace
 	}
 
-	// Dropped once it is dealt with, so the list shows outstanding work rather
-	// than a pile of things already handled.
-	if err := a.rollback.Forget(id); err != nil {
+	// Off the undo list once it is dealt with, so the list shows outstanding
+	// work rather than a pile of things already handled. Marked rather than
+	// dropped: the work graph still shows the change, and that it was undone.
+	if err := a.rollback.MarkRestored(id); err != nil {
 		a.emit("log:warning", err.Error())
 	}
+	a.recordRestore(id, entry.HostID, entry.Path, nil)
 	outcome := outcomeRestored
 	if inPlace {
 		outcome = outcomeRestoredInPlace
@@ -97,11 +107,27 @@ func (a *App) RestoreMCPChange(id string) ActionResult {
 // A failure is a warning, never a refusal. Losing the ability to undo is bad;
 // refusing to make the change the user just approved is worse, and would make
 // the feature look broken for a reason nobody can see.
-func (a *App) recordAIChange(hostID, path, action string, before []byte, created bool) {
+//
+// Returns the copy's ID for the work record, or "" when there is none.
+func (a *App) recordAIChange(hostID, path, action string, before []byte, created bool) string {
 	if a.rollback == nil {
+		return ""
+	}
+	e, err := a.rollback.Record(hostID, path, action, before, created)
+	if err != nil {
+		a.emit("log:warning", i18n.T("되돌리기용 사본을 남기지 못했습니다 (%s): %v", path, err))
+		if e.ID == "" {
+			return ""
+		}
+	}
+	return e.ID
+}
+
+// recordAIAfter keeps what a write put there, so the graph can show the change
+// as a diff. Losing it costs the diff, not the undo, so it is not reported.
+func (a *App) recordAIAfter(snapshot string, after []byte) {
+	if a.rollback == nil || snapshot == "" {
 		return
 	}
-	if _, err := a.rollback.Record(hostID, path, action, before, created); err != nil {
-		a.emit("log:warning", i18n.T("되돌리기용 사본을 남기지 못했습니다 (%s): %v", path, err))
-	}
+	_ = a.rollback.RecordAfter(snapshot, after)
 }

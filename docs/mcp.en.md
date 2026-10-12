@@ -1,6 +1,6 @@
 # MCP integration
 
-[← README](../README.en.md)
+[← README](../README.md)
 
 <p align="center">
   <img src="media/04-mcp-approval.gif" width="820" alt="MCP approval">
@@ -30,17 +30,25 @@ context-gathering hammers a small box's I/O. All of that load stays on the clien
 `sessions_list`. One `health_snapshot` returns CPU, memory, disk, failed units, unhealthy
 containers and exposed ports; `svc_logs` is what says *why* something died.
 
+On a Windows server, paths can be given as `C:\Users\me\a.txt` or `C:/Users/me/a.txt`.
+
 **Six write tools**: `svc_control` (start/stop/restart), `container_control`, `proc_signal`
 (TERM/KILL), `fs_write`, `fs_delete` and `run_command`.
 
 **They can be undone.** Before MCP overwrites or deletes a file, the previous contents are kept
-**on this machine**, and the **Changed files** tab restores them one at a time. When you have told
-it to stop asking and walked away, this is what you have instead of prevention. **Copies clear
-themselves after 24 hours**: this is a guard for one night, not an archive. Nothing is left on the
-server, and `fs_delete` refuses outright when no copy can be made (binary, or too large).
+**on this machine**, and the **Changed files** tab or the [AI work screen](#the-ai-work-screen)
+restores them. When you have told it to stop asking and walked away, this is what you have instead
+of prevention. **Copies are kept for 7 days by default and then clear themselves** — the window
+(1–90 days) and a size cap are set in the Changed files tab. It is a guard that lets you undo one
+file from last week, not an archive. Nothing is left on the server, and `fs_delete` refuses outright
+when no copy can be made (binary, or too large).
 
 **Deleting is enabled per server**, separately from sharing and from the approval mode: whether the
-tool exists and whether using it interrupts you are different questions.
+tool exists and whether using it interrupts you are different questions. On a server where it is off,
+an AI's delete is not just refused: **a dialog asks you**, showing the file — *Decline*, *Allow once*,
+or *Allow on this server from now on*. Running commands works the same way. The dialog appears even in
+the stop-asking mode, which means allowed changes go through unasked, not that what was switched off
+is switched on.
 
 **Running commands is enabled per server too — off by default.** `run_command` runs one line with `sh -c` and returns stdout, stderr and the exit code.
 It is a separate switch from deletion, because letting an agent clear a log file is not the same
@@ -72,6 +80,60 @@ anywhere. Being irreversible is not what separates it either: `proc_signal` (KIL
 files tab, and the dialog says so. `run_command` has no sudo and no way to ask for it — it runs as
 the login user with no tty, so anything wanting a password fails instead of waiting. What an
 arbitrary shell line would do with root is not bounded by anything.
+
+## The AI work screen
+
+> **Let AI work freely on your servers. What it did shows up as a graph, and changed files can be put back.**
+
+**AI work** in the rail shows what MCP clients did through LiteDeck, **one graph per session**. It
+covers every host, with a host filter at the top. Leave it open while an agent works and nodes
+appear as the calls happen; a dot on the rail says something is working while you are elsewhere.
+Nothing new is restricted — approval modes, switches and the sudo lock are as they were. This is a
+place to look.
+
+- **Left** — sessions: which client (by token name), which hosts, start and end, and how many
+  changes, failures, refusals and reads
+- **Middle** — the graph. **A band per host**, **a row per target** inside it, time running left to
+  right. The same record always draws the same picture, and a new call only ever adds to the right
+- **Right** — the selected node: a diff and undo for a file; otherwise the full command, the
+  result and the head of the output
+
+**Lines are drawn only where the record says so for certain.**
+
+| Line | Rule |
+|---|---|
+| Same target | Calls in one session about the same file, service, container or process, in order |
+| File → service | A file changed, then the service it belongs to restarted. The table: `/etc/nginx/**`→nginx, `/etc/ssh/sshd_config*`→ssh/sshd, `/etc/apache2`, `httpd`, `caddy`, `haproxy`, `mysql`, `postgresql`, `redis`, `fail2ban`, `/etc/docker/daemon.json`→docker, `/etc/php/*/fpm`→php-fpm, a unit file → its own unit. **A file not in the table is linked to nothing** |
+| Commands | **Linked to nothing.** What a shell line did cannot be read from its text, so commands are placed in time order only |
+
+Reads fold into one "N reads" node by default (double-click it, or **Expand** in the details). A
+session past 500 nodes is drawn one node per target. Failures and refusals are labelled in words as
+well as colour.
+
+**Whether a change can be undone** is decided by comparing the file on the server with the hash of
+what the AI wrote.
+
+| State | Meaning |
+|---|---|
+| Can be undone | The file on the server is still what the AI wrote |
+| Changed again since | A later write, a person or a deploy changed it after. Undoing would lose that too, so it asks once more |
+| Snapshot expired | The previous contents passed the retention window |
+| Undone | Already put back |
+| Not connected | Connect to the host to compare |
+
+**Undo for a whole session** puts back its file changes **newest first**. Three edits to one file
+are undone third, second, first, back to the original. A file something else changed since is
+skipped — with its earlier changes — and listed. If the session did things that cannot be undone,
+the count is shown at the top.
+
+**The record rides on the Command Log's AI rows.** Those rows — and only those — are kept on this
+machine for **30 days** in `ai-log.jsonl` (0600). What a person does in the app stays in memory, as
+before.
+
+> [!IMPORTANT]
+> **This graph shows only work that went through LiteDeck** — not what an AI did over SSH by itself,
+> and not what a person typed in a terminal. **Undo restores file contents only**: service restarts,
+> killed processes and commands cannot be undone.
 
 ## sudo
 
@@ -114,6 +176,15 @@ those first, so nothing could put them back.
 
 Pick a client on the MCP panel's **Connection** tab and press **Copy**. The app assembles the
 line, so the port and the token never have to be copied by hand.
+
+**Each client can have a token of its own.** Under **AI clients**, **Add client** with a name such
+as "Claude Code - MacBook" makes a token and paste lines for that client. The name is there so the
+AI work record says **who** did something; **every token can do the same things**. The original
+token keeps working as "Default", so nothing needs changing after an update. Removing a client
+stops its token at once.
+
+**Sessions** follow the connection when the client keeps the `Mcp-Session-Id` LiteDeck hands out in
+its `initialize` answer; otherwise a gap of **30 minutes** between one token's calls starts a new one.
 
 | Client | Status | How it attaches |
 |---|---|---|
