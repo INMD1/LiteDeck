@@ -33,6 +33,7 @@ export type Action =
   | 'toggleRail'
   | 'back'
   | 'forward'
+  | 'palette'
 
 interface Binding {
   /** KeyboardEvent.key */
@@ -69,6 +70,8 @@ const MAC: Record<Action, Binding> = {
   // the editor the keystroke never reaches it and moves the caret as always.
   back: { key: 'ArrowLeft', mod: true, label: '⌘←' },
   forward: { key: 'ArrowRight', mod: true, label: '⌘→' },
+  // The key VS Code taught everybody for "find any command".
+  palette: { key: 'p', mod: true, shift: true, label: '⇧⌘P' },
 }
 
 const PC: Record<Action, Binding> = {
@@ -84,6 +87,7 @@ const PC: Record<Action, Binding> = {
   toggleRail: { key: 'b', mod: true, label: 'Ctrl+B' },
   back: { key: 'ArrowLeft', alt: true, label: 'Alt+←' },
   forward: { key: 'ArrowRight', alt: true, label: 'Alt+→' },
+  palette: { key: 'p', mod: true, shift: true, label: 'Ctrl+Shift+P' },
 }
 
 let platform: Platform = {

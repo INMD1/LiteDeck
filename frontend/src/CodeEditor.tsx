@@ -117,6 +117,24 @@ function baseExtensions(
   ]
 }
 
+/**
+ * Keeps a file's line endings as they were.
+ *
+ * CodeMirror reads `\r\n` as a line break and writes `\n` back, so a file
+ * from a Windows server came out of the editor different from how it went in:
+ * marked changed the moment it opened, and saved with every line ending
+ * silently rewritten. A file whose every break is `\r\n` is edited as one;
+ * anything else — Unix, or a mix nobody chose — keeps the default.
+ */
+//
+// Read back with `state.sliceDoc()`, never `doc.toString()`: the second always
+// joins with `\n`, whatever the separator says.
+function lineEndingsOf(doc: string): Extension {
+  const lf = doc.split('\n').length - 1
+  const crlf = doc.split('\r\n').length - 1
+  return lf > 0 && lf === crlf ? EditorState.lineSeparator.of('\r\n') : []
+}
+
 export function CodeEditor({
   path,
   openPaths,
@@ -124,6 +142,7 @@ export function CodeEditor({
   onChange,
   onSave,
   onCursor,
+  grabFocus = true,
 }: {
   path: string
   /** Every tab currently open. A state kept for a tab that is gone is an
@@ -135,7 +154,12 @@ export function CodeEditor({
   onChange: (doc: string) => void
   onSave: () => void
   onCursor?: (line: number, col: number) => void
+  /** Take the keyboard when the editor appears. Off for the editor `vi` opens
+   *  in a terminal pane, which decides for itself — it loads on demand, and by
+   *  the time it arrives the person may have moved to another pane. */
+  grabFocus?: boolean
 }) {
+  const grabFocusRef = useRef(grabFocus)
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const language = useRef(new Compartment())
@@ -169,7 +193,7 @@ export function CodeEditor({
     const flushChange = () => {
       changeTimer = 0
       const v = view.current
-      if (v) cb.current.onChange(v.state.doc.toString())
+      if (v) cb.current.onChange(v.state.sliceDoc())
     }
     const listen = EditorView.updateListener.of((u) => {
       if (u.docChanged && !changeTimer) changeTimer = window.setTimeout(flushChange, 150)
@@ -183,8 +207,18 @@ export function CodeEditor({
       EditorState.create({
         doc,
         extensions: [
+          lineEndingsOf(doc),
           ...baseExtensions(
-            () => cb.current.onSave(),
+            () => {
+              // What was typed in the last 150 ms first. Without this a quick
+              // ⌘S judged the file by the text before the last keystrokes —
+              // "nothing changed" — and the save silently did not happen.
+              if (changeTimer) {
+                clearTimeout(changeTimer)
+                flushChange()
+              }
+              cb.current.onSave()
+            },
             language.current,
             fontSize.current,
           ),
@@ -196,7 +230,7 @@ export function CodeEditor({
     states.current.set(shown.current, state)
     const v = new EditorView({ state, parent: host.current! })
     view.current = v
-    v.focus()
+    if (grabFocusRef.current) v.focus()
 
     factory.current = make
 
@@ -204,7 +238,7 @@ export function CodeEditor({
       // Anything typed in the last 150 ms has not reached the store yet.
       if (changeTimer) {
         clearTimeout(changeTimer)
-        cb.current.onChange(v.state.doc.toString())
+        cb.current.onChange(v.state.sliceDoc())
       }
       v.destroy()
       view.current = null
@@ -242,7 +276,7 @@ export function CodeEditor({
   useEffect(() => {
     const v = view.current
     if (!v || shown.current !== path) return
-    const current = v.state.doc.toString()
+    const current = v.state.sliceDoc()
     if (current === value) return
     v.dispatch({
       changes: { from: 0, to: v.state.doc.length, insert: value },
