@@ -57,3 +57,32 @@ func TestApplyRefusesWhereItCannotWrite(t *testing.T) {
 		t.Error("accepted a directory it cannot write — the app would quit and not come back")
 	}
 }
+
+// The Windows helper is CR LF throughout and ASCII only, or cmd.exe misreads
+// every line of it. Checked against the bytes that are written, on every OS —
+// the Windows path never runs on the machines the tests usually run on, which
+// is how it shipped broken from 2.0.0 to 2.4.0.
+func TestTheWindowsSwapHelperIsReadableByCmd(t *testing.T) {
+	name, body := swapHelper("windows")
+	if !strings.HasSuffix(name, ".cmd") {
+		t.Fatalf("name = %q", name)
+	}
+	for i, c := range body {
+		if c == '\n' && (i == 0 || body[i-1] != '\r') {
+			t.Fatalf("a bare LF at byte %d — cmd.exe drops two characters from every line after it", i)
+		}
+		if c > 0x7e || (c < 0x20 && c != '\r' && c != '\n') {
+			t.Fatalf("byte %d is 0x%02x — cmd reads the script in the console code page, keep it ASCII", i, c)
+		}
+	}
+	// The wait must actually wait wherever it runs. timeout /t refuses without
+	// a console on stdin, and the loop then gives up within seconds.
+	if strings.Contains(strings.ToLower(string(body)), "\ntimeout ") {
+		t.Error("the cmd helper waits with timeout /t, which fails without a console")
+	}
+	// And the sh helper stays LF: a CR would end up inside its commands.
+	_, sh := swapHelper("linux")
+	if strings.Contains(string(sh), "\r") {
+		t.Error("the sh helper has a CR in it")
+	}
+}
