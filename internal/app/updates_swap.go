@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 )
 
 // The helper that replaces the running copy.
@@ -83,14 +84,16 @@ tasklist /FI "PID eq %~1" /NH 2>nul | find "%~1" >nul
 if errorlevel 1 goto gone
 set /a i+=1
 if %i% GTR 100 exit /b 1
-timeout /t 1 /nobreak >nul
+rem One second. Not the timeout command: with no console on stdin it refuses
+rem at once, and the loop then spends its hundred tries in a few seconds.
+ping -n 2 127.0.0.1 >nul
 goto wait
 
 :gone
 set "old=%~2.litedeck-old"
 if exist "%old%" del /f /q "%old%"
 rem Every failure after the app has quit relaunches what is there. Without it
-rem "Install update" made the window vanish with nothing coming back — Defender
+rem "Install update" made the window vanish with nothing coming back; Defender
 rem holding the file open is enough to reach this.
 move /y "%~2" "%old%" >nul || (start "" "%~2" & exit /b 1)
 move /y "%~3" "%~2" >nul || (move /y "%old%" "%~2" >nul & start "" "%~2" & exit /b 1)
@@ -98,20 +101,39 @@ del /f /q "%old%" >nul 2>&1
 
 start "" "%~2"
 rmdir /s /q "%~dp3" >nul 2>&1
-del /f /q "%~f0" >nul 2>&1
+rem (goto) first: a script that deletes itself and then lets cmd read on prints
+rem "The batch file cannot be found" into the window on its way out.
+(goto) 2>nul & del /f /q "%~f0" >nul 2>&1
 `
+
+// swapHelper is the script for an OS, as the bytes to write.
+//
+// # Why the Windows one is rewritten here
+//
+// The constant above is Go source, so its lines end in LF. cmd.exe reads a
+// batch file on the assumption that they end in CR LF: after each line it
+// seeks to where the next one would start, and with LF alone it lands two
+// bytes late. Every line lost its first two characters — `setlocal` ran as
+// `tlocal`, `rem` as `m`, `:wait` as `ait` — and the swap never happened: from
+// 2.0.0 on, "Install update" on Windows printed four "is not recognized"
+// errors and left the new build in the temp folder. The script is also kept to
+// ASCII: cmd reads it in the console's code page, not as UTF-8.
+func swapHelper(goos string) (name string, body []byte) {
+	if goos == "windows" {
+		return "litedeck-swap.cmd", []byte(strings.ReplaceAll(swapCmd, "\n", "\r\n"))
+	}
+	return "litedeck-swap.sh", []byte(swapSh)
+}
 
 // writeSwapHelper puts the script somewhere it can run from and returns its
 // path. The paths it works on are passed to it as arguments (see swapArgs).
 func writeSwapHelper(staged string) (string, error) {
-	name, body, mode := "litedeck-swap.sh", swapSh, os.FileMode(0o700)
-	if runtime.GOOS == "windows" {
-		name, body = "litedeck-swap.cmd", swapCmd
-	}
+	name, body := swapHelper(runtime.GOOS)
+	mode := os.FileMode(0o700)
 	// Beside the staged copy, not in the app's own directory: that one is about
 	// to be moved out from under it.
 	path := filepath.Join(filepath.Dir(filepath.Dir(staged)), name)
-	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+	if err := os.WriteFile(path, body, mode); err != nil {
 		return "", err
 	}
 	return path, nil
