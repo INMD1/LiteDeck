@@ -355,6 +355,7 @@ When the summary bar says **CPU 40%**, this tab says **what the 40% is**.
 - **Inodes.** A disk with room that cannot create a file — and every tool then says `no space left on device`, the same words as running out of bytes
 - **Network errors and drops**, **disk I/O**, **PSI** (how long things waited, rather than how much was used), runnable and blocked counts, open descriptors
 - **NVIDIA cards** add utilisation, fan, temperature and VRAM
+- **Jetson** GPU utilisation, clock and temperature are read straight from the kernel (devfreq and thermal zones) — nothing to install, no sudo. The GPU allocates from system RAM, so there is no VRAM figure; it says "shared with system RAM" instead
 
 Trends are drawn over real time for as long as the app was watching, and **stretches it did not see are drawn as breaks.** It does not join up a reading nobody took.
 

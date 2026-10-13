@@ -336,6 +336,8 @@ export const en: Record<string, string> = {
   '코어 {n}개': '{n} cores',
   '온도': 'Temp',
   '팬': 'Fan',
+  '클럭': 'Clock',
+  '시스템 메모리와 공유': 'Shared with system RAM',
   '프로그램': 'Programs',
   '두 번째 표본을 기다리는 중': 'Waiting for a second sample',
   'GPU {n}': 'GPU {n}',

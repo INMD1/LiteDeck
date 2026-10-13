@@ -225,7 +225,9 @@ func (a *App) HostMetrics(hostID string) (MetricsView, error) {
 	if gpuLive {
 		// Never nil: the bar maps over this, and a host with no card has to
 		// arrive as an empty list rather than as a missing one.
-		m.GPUs = gpuRows
+		// Through the same Jetson pass the inline rows got in ParseMetrics: on
+		// JetPack 6 the feed is streaming nvidia-smi's empty Orin row.
+		m.GPUs = m.Tegra.Apply(gpuRows)
 		if m.GPUs == nil {
 			m.GPUs = []adapter.GPU{}
 		}

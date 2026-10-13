@@ -26,7 +26,8 @@ import (
 //
 // Every line reads a file the kernel already keeps, so the whole snapshot costs
 // one round trip and no process on the server worth measuring. The GPU is the
-// exception and does not live here — see GPUStreamScript.
+// exception and does not live here — see GPUStreamScript. A Jetson's GPU is the
+// exception to the exception: it is files too, and rides here (tegraSection).
 //
 // The trailing `:` makes the script's exit status its own rather than the last
 // command's. `cat /proc/loadavg` fails on a kernel without it, `df` fails on a
@@ -45,6 +46,7 @@ echo '#net'; cat /proc/net/dev 2>/dev/null
 echo '#io'; cat /proc/diskstats 2>/dev/null
 echo '#fd'; cat /proc/sys/fs/file-nr 2>/dev/null
 echo '#psi'; for z in cpu io memory; do echo "@$z"; cat /proc/pressure/$z 2>/dev/null; done
+` + tegraSection + `
 :`
 
 // MetricsScriptWithGPU is MetricsScript with the card read inline, one
@@ -84,6 +86,7 @@ echo '#io'; cat /proc/diskstats 2>/dev/null
 echo '#fd'; cat /proc/sys/fs/file-nr 2>/dev/null
 echo '#psi'; for z in cpu io memory; do echo "@$z"; cat /proc/pressure/$z 2>/dev/null; done
 echo '#gpu'; $TO nvidia-smi --query-gpu=` + gpuQueryFields + ` --format=csv,noheader,nounits 2>/dev/null
+` + tegraSection + `
 :`
 
 // gpuQueryFields is the one list both readings ask for, so the inline poll and
@@ -308,6 +311,15 @@ type GPU struct {
 	MemTotal   int64   `json:"memTotal"` // bytes
 	MemUsed    int64   `json:"memUsed"`
 	MemPercent float64 `json:"memPercent"`
+
+	// Shared is a GPU with no memory of its own: a Jetson, whose GPU allocates
+	// from the same RAM the memory tile already counts. There is no VRAM figure
+	// to show, and "—" there would read as a reading that failed.
+	Shared bool `json:"shared,omitempty"`
+	// The clock the GPU is running at and the most it may. Only the Jetson path
+	// reads these (devfreq has them for free); zero where unknown.
+	ClockMHz    int `json:"clockMHz,omitempty"`
+	MaxClockMHz int `json:"maxClockMHz,omitempty"`
 }
 
 // Metrics is one snapshot of a server's health.
@@ -383,6 +395,12 @@ type Metrics struct {
 	// GPUs is empty on the overwhelming majority of servers, which is why the
 	// summary bar treats it as an optional section rather than a fixed tile.
 	GPUs []GPU `json:"gpus"`
+
+	// Tegra is what the #tegra section said. Kept apart from GPUs because the
+	// card list is not final when the script is parsed — the nvidia-smi feed
+	// may replace it — and the Jetson reading has to be laid over whichever
+	// list wins. See TegraReading.Apply.
+	Tegra TegraReading `json:"-"`
 }
 
 // ParseMetrics reads the output of MetricsScript.
@@ -456,7 +474,8 @@ func ParseMetrics(data []byte, prev CPUTimes) (Metrics, error) {
 	}
 
 	m.Filesystems = parseDF(sections["df"])
-	m.GPUs = parseGPUs(sections["gpu"])
+	m.Tegra = parseTegra(sections["tegra"])
+	m.GPUs = m.Tegra.Apply(parseGPUs(sections["gpu"]))
 
 	// procs_running counts tasks that want a CPU right now; procs_blocked
 	// counts tasks parked in uninterruptible IO. These lines ride the /proc/stat

@@ -276,15 +276,7 @@ export function ResourceView({
               warnAt={95}
               label={t('GPU {n} 사용률 추이', { n: g.index })}
             />
-            <Facts
-              rows={[
-                // A fan reading of "—" is a passively cooled card, not a stopped
-                // fan. Showing 0 there would be alarming and wrong.
-                [t('팬'), pct(g.fan)],
-                [t('온도'), g.tempC < 0 ? '—' : `${Math.round(g.tempC)}°C`],
-                ['VRAM', `${bytes(g.memUsed)} / ${bytes(g.memTotal)}`],
-              ]}
-            />
+            <Facts rows={gpuFacts(g)} />
           </Panel>
         ))}
 
@@ -654,6 +646,22 @@ function sumRate(xs?: number[]): number {
 
 /** key/value pairs on one line each, tight. Small type and tabular numbers so
  *  the values line up down the panel. */
+function gpuFacts(g: GPU): [string, string][] {
+  const rows: [string, string][] = []
+  // A fan reading of "—" is a passively cooled card, not a stopped fan.
+  // Showing 0 there would be alarming and wrong. A Jetson's fan is the
+  // board's, not the GPU's, and nothing here reads it — no row at all.
+  if (!(g.shared && g.fan < 0)) rows.push([t('팬'), pct(g.fan)])
+  rows.push([t('온도'), g.tempC < 0 ? '—' : `${Math.round(g.tempC)}°C`])
+  if (g.clockMHz) {
+    rows.push([t('클럭'), g.maxClockMHz ? `${g.clockMHz} / ${g.maxClockMHz} MHz` : `${g.clockMHz} MHz`])
+  }
+  if (g.memTotal > 0) rows.push(['VRAM', `${bytes(g.memUsed)} / ${bytes(g.memTotal)}`])
+  else if (g.shared) rows.push([t('메모리'), t('시스템 메모리와 공유')])
+  else rows.push(['VRAM', '—'])
+  return rows
+}
+
 function Facts({ rows }: { rows: [string, string][] }) {
   return (
     <dl className="res-facts">
