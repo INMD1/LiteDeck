@@ -522,6 +522,12 @@ export interface GPU {
   memTotal: number
   memUsed: number
   memPercent: number
+  /** A Jetson: no memory of its own, it allocates from the RAM the memory tile
+   *  already counts. */
+  shared?: boolean
+  /** devfreq's clock, Jetson only. Absent where unknown. */
+  clockMHz?: number
+  maxClockMHz?: number
 }
 
 /** One row of the event timeline. See arch/07. */

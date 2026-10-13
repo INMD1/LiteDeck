@@ -171,6 +171,7 @@ function gpuTitle(g: GPU): string {
   if (g.tempC >= 0) parts.push(fmtTemp(g.tempC))
   if (g.fan >= 0) parts.push(t('팬 {f}%', { f: g.fan.toFixed(0) }))
   if (g.memTotal > 0) parts.push(`${bytes(g.memUsed)} / ${bytes(g.memTotal)}`)
+  else if (g.shared) parts.push(t('시스템 메모리와 공유'))
   return parts.join(' · ')
 }
 
