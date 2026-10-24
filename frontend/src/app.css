@@ -2079,6 +2079,125 @@ button.danger {
   border-top: 1px solid var(--border);
 }
 
+/* Split panes. Each is placed absolutely from the layout tree rather than
+   nested, so a pane that gets split keeps its terminal (and its scrollback)
+   instead of being rebuilt inside a new wrapper. */
+.term-cell {
+  position: absolute;
+  min-width: 0;
+  min-height: 0;
+}
+/* Which pane has the keyboard, drawn only when there is more than one. A thin
+   inset ring rather than a border: a border would change the pane's size, and
+   with it the terminal's column count, every time the focus moved. */
+.term-cell[data-focus]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Above the editor `vi` lays over a pane (z-index 2), or four editors side
+     by side give no sign of which one the keyboard is in. */
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.term-cell[data-dead] .term-pane {
+  opacity: 0.6;
+}
+.term-cell-close {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.term-cell:hover .term-cell-close,
+.term-cell-close:focus-visible {
+  opacity: 1;
+}
+/* The line between two panes. Drawn one pixel wide, grabbed six wide. */
+.term-divider {
+  position: absolute;
+  z-index: 3;
+  background: transparent;
+}
+.term-divider::before {
+  content: '';
+  position: absolute;
+  background: var(--border-strong);
+}
+.term-divider[data-dir='row'] {
+  width: 7px;
+  transform: translateX(-3px);
+  cursor: col-resize;
+}
+.term-divider[data-dir='row']::before {
+  inset: 0 3px;
+}
+.term-divider[data-dir='col'] {
+  height: 7px;
+  transform: translateY(-3px);
+  cursor: row-resize;
+}
+.term-divider[data-dir='col']::before {
+  inset: 3px 0;
+}
+.term-divider:hover::before {
+  background: var(--accent);
+}
+.term-tab-count {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+.term-split-btn {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Ligatures. xterm's DOM renderer puts a run of same-styled cells in one span,
+   which is what lets a font's ligatures form at all; this decides whether they
+   may. Off unless asked for: `->` turning into an arrow is a surprise to
+   anybody who did not choose a ligature font on purpose. */
+.term-pane .xterm-rows {
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
+}
+.term-pane[data-ligatures] .xterm-rows {
+  font-variant-ligatures: normal;
+  font-feature-settings: 'liga' 1, 'calt' 1;
+}
+
+/* The terminal's own settings, opened from the toolbar. */
+.term-settings-anchor {
+  position: relative;
+}
+.term-settings {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+}
+.term-settings .form-grid {
+  margin-bottom: 0;
+}
+.term-settings .checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+}
+
 /* A tab the server cannot serve is still reachable; the panel says why. */
 
 .unavailable {
